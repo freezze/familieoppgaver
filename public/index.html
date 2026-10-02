@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FBF6EE">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Oppgaver">
+<title>Dagens oppgaver</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<header class="topp">
+  <button class="nav" id="forrige" aria-label="Forrige dag">‹</button>
+  <div class="dato">
+    <div class="ukedag" id="ukedag"></div>
+    <div class="datotekst" id="datotekst"></div>
+  </div>
+  <button class="nav" id="neste" aria-label="Neste dag">›</button>
+  <button class="idag" id="idag" hidden>Til i dag</button>
+</header>
+
+<div class="bursdag" id="bursdag" hidden></div>
+
+<section class="kort kalender" aria-labelledby="kal-tittel">
+  <div class="kort-hode">
+    <h2 id="kal-tittel">📅 <span id="kal-overskrift">Dette skjer i dag</span></h2>
+    <span class="liten" id="kal-oppdatert"></span>
+  </div>
+  <div id="heldag" class="heldag"></div>
+  <ol id="avtaler" class="avtaler"></ol>
+</section>
+
+<main class="barn" id="barn"></main>
+
+<section class="bunn">
+  <div class="kort halv">
+    <div class="kort-hode"><h2>🤝 Felles – hvem som helst</h2><span class="liten" id="felles-teller"></span></div>
+    <p class="hint">Trykk på oppgaven og velg hvem som tok den.</p>
+    <ul class="liste" id="felles"></ul>
+  </div>
+  <div class="kort halv">
+    <div class="kort-hode"><h2>📌 Bare i dag – <span id="dagnavn"></span></h2><span class="liten" id="dag-teller"></span></div>
+    <p class="hint">Oppgaver som hører til akkurat denne dagen.</p>
+    <ul class="liste" id="dagens"></ul>
+  </div>
+</section>
+
+<footer class="fot"><a href="/admin">Endre oppgaver</a></footer>
+
+<div class="velger" id="velger" hidden>
+  <div class="velger-boks" role="dialog" aria-modal="true" aria-labelledby="velger-tittel">
+    <div class="velger-tittel" id="velger-tittel">Hvem tok den?</div>
+    <div class="velger-oppgave" id="velger-oppgave"></div>
+    <div class="velger-knapper" id="velger-knapper"></div>
+    <button class="avbryt" id="velger-avbryt">Avbryt</button>
+  </div>
+</div>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>

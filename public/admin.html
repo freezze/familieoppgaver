@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Endre oppgaver</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
+<link rel="stylesheet" href="style.css?v=1">
+<style>
+  .grupper { display: grid; gap: 16px; }
+  .rad { display: grid; grid-template-columns: 52px 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linje); }
+  .rad:last-child { border-bottom: 0; }
+  .rad input, .rad select { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--linje); background: var(--bg); color: var(--tekst); width: 100%; min-width: 0; }
+  .rad .em { text-align: center; }
+  .dager { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .dager button { border: 1px solid var(--linje); background: var(--kort); border-radius: 999px; padding: 4px 10px; font-weight: 800; font-size: .85rem; }
+  .dager button.på { background: var(--farge); border-color: var(--farge); color: #fff; }
+  .dager .info { font-size: .8rem; color: var(--dempet); font-weight: 700; margin-left: 4px; }
+  .dager select { width: auto; margin-left: auto; padding: 4px 8px; font-size: .85rem; }
+  .slett { border: 0; background: none; font-size: 1.2rem; padding: 6px; }
+  .legg { border: 2px dashed var(--linje); background: none; border-radius: 12px; padding: 10px; width: 100%; font-weight: 800; color: var(--dempet); margin-top: 8px; }
+  .lagre { position: sticky; bottom: 12px; display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+  .lagre button, .lagre a { border: 0; border-radius: 999px; padding: 14px 26px; font-weight: 900; background: var(--tekst); color: var(--bg); text-decoration: none; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+  .lagre a { background: var(--kort); color: var(--tekst); border: 1px solid var(--linje); }
+  .status { text-align: center; font-weight: 800; color: var(--ok); min-height: 1.4em; margin-top: 8px; }
+  h1 { text-align: center; font-weight: 900; margin: 6px 0 4px; }
+  .under { text-align: center; color: var(--dempet); margin: 0 0 18px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Endre oppgaver</h1>
+<p class="under">Velg dager for oppgaver som bare gjelder enkelte dager. Ingen dager valgt betyr hver dag.</p>
+<div class="grupper" id="grupper"></div>
+<div class="status" id="status"></div>
+<div class="lagre"><a href="/">← Tilbake</a><button id="lagre">Lagre endringer</button></div>
+
+<script>
+const DAG = ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
+let kids = [], tasks = [];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+async function last() {
+  const r = await fetch('/api/tasks', { cache: 'no-store' });
+  ({ kids, tasks } = await r.json());
+  tegn();
+}
+
+function grupper() {
+  return [...kids.map(k => ({ id: k.id, navn: k.name, farge: k.color })), { id: 'felles', navn: 'Felles – hvem som helst', farge: '#B9853F' }];
+}
+
+function tegn() {
+  const g = grupper();
+  document.getElementById('grupper').innerHTML = g.map(gr => `
+    <section class="kort" style="--farge:${gr.farge};border-top:6px solid ${gr.farge}">
+      <h2 style="color:${gr.farge};font-size:1.3rem">${esc(gr.navn)}</h2>
+      ${tasks.map((t, i) => t.owner !== gr.id ? '' : `
+        <div class="rad" data-i="${i}">
+          <input class="em" value="${esc(t.emoji)}" data-f="emoji" aria-label="Emoji">
+          <input value="${esc(t.title)}" data-f="title" aria-label="Oppgave">
+          <button class="slett" data-slett="${i}" aria-label="Slett">🗑️</button>
+          <div class="dager">
+            ${DAG.map((d, n) => `<button class="${t.days.includes(n) ? 'på' : ''}" data-dag="${n}">${d}</button>`).join('')}
+            <span class="info">${t.days.length ? '' : 'hver dag'}</span>
+            <select data-f="owner" aria-label="Hvem">${g.map(o => `<option value="${o.id}" ${o.id === t.owner ? 'selected' : ''}>${esc(o.navn.split(' ')[0])}</option>`).join('')}</select>
+          </div>
+        </div>`).join('')}
+      <button class="legg" data-legg="${gr.id}">+ Ny oppgave</button>
+    </section>`).join('');
+}
+
+document.addEventListener('input', e => {
+  const rad = e.target.closest('.rad'); if (!rad) return;
+  tasks[rad.dataset.i][e.target.dataset.f] = e.target.value;
+});
+document.addEventListener('change', e => {
+  if (e.target.dataset.f === 'owner') tegn();
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const rad = b.closest('.rad');
+  if (b.dataset.dag && rad) {
+    const t = tasks[rad.dataset.i], n = +b.dataset.dag;
+    t.days = t.days.includes(n) ? t.days.filter(x => x !== n) : [...t.days, n].sort();
+    tegn();
+  } else if (b.dataset.slett) {
+    if (confirm(`Slette «${tasks[b.dataset.slett].title}»?`)) { tasks.splice(b.dataset.slett, 1); tegn(); }
+  } else if (b.dataset.legg) {
+    tasks.push({ owner: b.dataset.legg, title: '', emoji: '⭐', days: [] });
+    tegn();
+    const inputs = document.querySelectorAll(`[data-legg="${b.dataset.legg}"]`)[0].parentElement.querySelectorAll('input[data-f="title"]');
+    inputs[inputs.length - 1]?.focus();
+  } else if (b.id === 'lagre') {
+    lagre();
+  }
+});
+
+async function lagre() {
+  const s = document.getElementById('status');
+  s.textContent = 'Lagrer…';
+  const r = await fetch('/api/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasks }) });
+  if (!r.ok) { s.textContent = 'Noe gikk galt – prøv igjen'; return; }
+  tasks = (await r.json()).tasks;
+  tegn();
+  s.textContent = 'Lagret ✓';
+  setTimeout(() => s.textContent = '', 2500);
+}
+
+last();
+</script>
+</body>
+</html>

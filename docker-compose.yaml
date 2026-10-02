@@ -1,0 +1,16 @@
+services:
+  oppgaver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - 'SYNC_TOKEN=${SYNC_TOKEN}'
+    volumes:
+      - 'oppgaver-data:/data'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  oppgaver-data:
