@@ -1,5 +1,5 @@
 const DAGER = ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag'];
-const FELLES_FARGE = '#B9853F';
+const FELLES_FARGE = '#8A6BB8';
 const $ = id => document.getElementById(id);
 
 let valgt = startOfDay(new Date());
