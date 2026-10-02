@@ -17,9 +17,9 @@ PUBLIC = Path(__file__).parent / "public"
 LOCK = threading.Lock()
 
 KIDS = [
-    {"id": "bastian", "name": "Bastian", "color": "#C8453C", "cal": "Bastian", "birthday": "10-07", "born": 2015},
+    {"id": "bastian", "name": "Bastian", "color": "#3E9A5B", "cal": "Bastian", "birthday": "10-07", "born": 2015},
     {"id": "cadence", "name": "Cadence", "color": "#3B78C2", "cal": "Cadence", "birthday": "01-17", "born": 2014},
-    {"id": "william", "name": "William", "color": "#3E9A5B", "cal": "William", "birthday": "12-08", "born": 2009},
+    {"id": "william", "name": "William", "color": "#E07B24", "cal": "William", "birthday": "12-08", "born": 2009},
 ]
 FELLES_CAL = "Fellesplan"
 
