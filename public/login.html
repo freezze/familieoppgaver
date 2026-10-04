@@ -26,16 +26,21 @@
 <form class="kort logginn" id="skjema">
   <img src="/icon.svg" alt="">
   <h1>Dagens oppgaver</h1>
-  <p>Du er ikke hjemme. Tast koden for å komme inn.</p>
+  <p id="tekst">Tast koden for å komme inn.</p>
   <input class="kode" id="kode" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" autofocus aria-label="Kode">
   <button class="gaa">Gå inn</button>
   <div class="feil" id="feil"></div>
 </form>
 <script>
+const ADMIN = location.pathname.startsWith('/admin');
+if (ADMIN) {
+  document.querySelector('h1').textContent = 'Endre oppgaver';
+  document.getElementById('tekst').textContent = 'Bare for mamma og pappa. Tast foreldrekoden.';
+}
 document.getElementById('skjema').onsubmit = async e => {
   e.preventDefault();
   const kode = document.getElementById('kode'), feil = document.getElementById('feil');
-  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: kode.value }) });
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: kode.value, admin: ADMIN }) });
   if (r.ok) return location.reload();
   const d = await r.json().catch(() => ({}));
   feil.textContent = d.error || 'Feil kode';

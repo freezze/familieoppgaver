@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     environment:
       - 'SYNC_TOKEN=${SYNC_TOKEN}'
+      - 'ACCESS_CODE=${ACCESS_CODE}'
+      - 'ADMIN_CODE=${ADMIN_CODE}'
+      - 'ALLOWED_IPS=${ALLOWED_IPS:-}'
     volumes:
       - 'oppgaver-data:/data'
     healthcheck:

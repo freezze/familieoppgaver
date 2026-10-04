@@ -83,21 +83,14 @@ let done = sync["done"] as? [String: [String: Any]] ?? [:]
 let away = Set(sync["away"] as? [String] ?? [])
 let weekday = (cal.component(.weekday, from: Date()) + 5) % 7  // 0 = mandag
 
-// Lister: «Oppgaver Bastian» osv. Lages i samme konto som standardlista (iCloud).
+// Bruker de eksisterende, delte listene som heter det samme som barnet («Bastian» osv.).
+// Lager aldri nye lister. Andre påminnelser i listene røres ikke – bare de med vår URL.
 var lists: [String: EKCalendar] = [:]
 let existing = store.calendars(for: .reminder)
 for k in kids {
-    let id = k["id"] as! String, name = "Oppgaver \(k["name"] as! String)"
-    if let c = existing.first(where: { $0.title == name }) { lists[id] = c; continue }
-    guard let source = store.defaultCalendarForNewReminders()?.source else { log("fant ingen påminnelseskonto"); exit(1) }
-    let c = EKCalendar(for: .reminder, eventStore: store)
-    c.title = name
-    c.source = source
-    if let hex = k["color"] as? String, let v = Int(hex.dropFirst(), radix: 16) {
-        c.cgColor = CGColor(red: CGFloat((v >> 16) & 255) / 255, green: CGFloat((v >> 8) & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
-    }
-    do { try store.saveCalendar(c, commit: true); lists[id] = c; log("laget liste \(name)") }
-    catch { log("kunne ikke lage \(name): \(error.localizedDescription)") }
+    let id = k["id"] as! String, name = k["name"] as! String
+    if let c = existing.first(where: { $0.title == name && $0.allowsContentModifications }) { lists[id] = c }
+    else { log("fant ingen skrivbar påminnelsesliste «\(name)»") }
 }
 
 // Hent alle påminnelser i listene

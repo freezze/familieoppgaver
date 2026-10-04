@@ -23,6 +23,8 @@ LOCK = threading.Lock()
 
 # Tilgang: fra godkjente IP-er slipper man inn direkte, ellers må man taste koden.
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+ADMIN_CODE = os.environ.get("ADMIN_CODE", "")  # foreldrekode – kreves ALLTID for å endre oppgaver
+ADMIN_COOKIE = "foreldre"
 ALLOWED_IPS = [x.strip() for x in os.environ.get("ALLOWED_IPS", "").split(",") if x.strip()]
 SECRET = (os.environ.get("COOKIE_SECRET") or SYNC_TOKEN or "lokal").encode()
 COOKIE = "tilgang"
@@ -102,8 +104,9 @@ def tasks():
     return t
 
 
-def access_token():
-    return hmac.new(SECRET, ("kode:" + ACCESS_CODE).encode(), hashlib.sha256).hexdigest()[:32]
+def access_token(admin=False):
+    code = ("admin:" + ADMIN_CODE) if admin else ("kode:" + ACCESS_CODE)
+    return hmac.new(SECRET, code.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def weather():
@@ -157,15 +160,22 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_ip()
         return any(ip == a or (a.endswith(".") and ip.startswith(a)) for a in ALLOWED_IPS)
 
-    def has_access(self):
-        if not ACCESS_CODE or self.ip_allowed():
-            return True
+    def cookie_ok(self, name, admin):
         c = SimpleCookie(self.headers.get("Cookie", ""))
-        return COOKIE in c and hmac.compare_digest(c[COOKIE].value, access_token())
+        return name in c and hmac.compare_digest(c[name].value, access_token(admin))
 
-    def guard(self, p):
+    def is_admin(self):
+        return bool(ADMIN_CODE) and self.cookie_ok(ADMIN_COOKIE, True)
+
+    def has_access(self):
+        return not ACCESS_CODE or self.ip_allowed() or self.cookie_ok(COOKIE, False) or self.is_admin()
+
+    def guard(self, p, method="GET"):
         """Returnerer True hvis forespørselen er stoppet (ingen tilgang)."""
-        if p in OPEN_PATHS or self.has_access():
+        if p in OPEN_PATHS:
+            return False
+        admin_needed = p in ("/admin", "/admin/", "/admin.html", "/api/tasks")
+        if (self.is_admin() or not ADMIN_CODE) if admin_needed else self.has_access():
             return False
         if p.startswith("/api/"):
             self.send_json({"error": "kode"}, 401)
@@ -206,8 +216,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/whoami":
             return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access(),
-                                   "xff": self.headers.get("X-Forwarded-For"), "real": self.headers.get("X-Real-Ip"),
-                                   "cf": self.headers.get("Cf-Connecting-Ip"), "peer": self.client_address[0]})
+                                   "foreldre": self.is_admin()})
         if u.path == "/api/sync":
             # Brukes av Macen for å speile dagens oppgaver i Påminnelser
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
@@ -255,14 +264,22 @@ class Handler(BaseHTTPRequestHandler):
                 n, first = 0, now
             if n >= 10:
                 return self.send_json({"error": "For mange forsøk. Vent litt og prøv igjen."}, 429)
-            if not ACCESS_CODE or not hmac.compare_digest(str(body.get("code", "")).strip(), ACCESS_CODE):
+            code = str(body.get("code", "")).strip()
+            admin = bool(body.get("admin"))
+            riktig = ADMIN_CODE if admin else ACCESS_CODE
+            # Foreldrekoden slipper også inn på tavla
+            if not admin and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE):
+                admin = True
+                riktig = ADMIN_CODE
+            if not riktig or not hmac.compare_digest(code, riktig):
                 FAILS[ip] = (n + 1, first)
                 return self.send_json({"error": "Feil kode"}, 403)
             FAILS.pop(ip, None)
+            name, tok = (ADMIN_COOKIE, access_token(True)) if admin else (COOKIE, access_token())
             payload = json.dumps({"ok": True}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Set-Cookie", f"{COOKIE}={access_token()}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax; Secure")
+            self.send_header("Set-Cookie", f"{name}={tok}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax; Secure")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
