@@ -216,7 +216,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/whoami":
             return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access(),
-                                   "foreldre": self.is_admin()})
+                                   "foreldre": self.is_admin(),
+                                   "headers": {k: v for k, v in self.headers.items() if k.lower() not in ("cookie",)}})
         if u.path == "/api/sync":
             # Brukes av Macen for å speile dagens oppgaver i Påminnelser
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
