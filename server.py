@@ -205,7 +205,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.guard(u.path):
             return
         if u.path == "/api/whoami":
-            return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access()})
+            return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access(),
+                                   "xff": self.headers.get("X-Forwarded-For"), "real": self.headers.get("X-Real-Ip"),
+                                   "cf": self.headers.get("Cf-Connecting-Ip"), "peer": self.client_address[0]})
         if u.path == "/api/sync":
             # Brukes av Macen for å speile dagens oppgaver i Påminnelser
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
