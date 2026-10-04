@@ -177,9 +177,10 @@ for t in tasks {
             n.calendar = lists[kid]
             n.title = "\(t["emoji"] as? String ?? "") \(t["title"] as! String)\(owner == "felles" ? " (felles)" : "")".trimmingCharacters(in: .whitespaces)
             n.url = URL(string: "\(scheme)://\(k)")
-            n.dueDateComponents = cal.dateComponents([.year, .month, .day], from: Date())
+            // Ingen forfallsdato: da dukker oppgavene IKKE opp i Kalender-appen, bare i listene.
             r = n
         }
+        if r!.dueDateComponents != nil { r!.dueDateComponents = nil }
         if r!.isCompleted != final || r!.hasChanges || r!.isNew {
             r!.isCompleted = final
             do { try store.save(r!, commit: false); changes += 1 } catch { log("lagring feilet: \(error.localizedDescription)") }
