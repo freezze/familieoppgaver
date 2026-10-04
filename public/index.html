@@ -10,7 +10,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <header class="topp">
@@ -25,6 +25,18 @@
 
 <div class="bursdag" id="bursdag" hidden></div>
 
+<div class="toppkort">
+<section class="kort vaer" aria-labelledby="vaer-tittel">
+  <div class="kort-hode">
+    <h2 id="vaer-tittel">🌤️ Været i Skien</h2>
+    <a class="liten" href="https://www.yr.no/nb/v%C3%A6rvarsel/daglig-tabell/1-2381033/Norge/Vestfold%20og%20Telemark/Skien/Skien" target="_blank" rel="noopener">Yr</a>
+  </div>
+  <div class="vaer-naa" id="vaer-naa"><span class="tomt">Henter vær …</span></div>
+  <div class="vaer-tips" id="vaer-tips" hidden></div>
+  <ol class="vaer-timer" id="vaer-timer"></ol>
+  <ol class="vaer-dager" id="vaer-dager"></ol>
+  <div class="kreditt">Værvarsel fra <a href="https://www.yr.no" target="_blank" rel="noopener">Yr</a>, levert av NRK og Meteorologisk institutt</div>
+</section>
 <section class="kort kalender" aria-labelledby="kal-tittel">
   <div class="kort-hode">
     <h2 id="kal-tittel">📅 <span id="kal-overskrift">Dette skjer i dag</span></h2>
@@ -33,6 +45,7 @@
   <div id="heldag" class="heldag"></div>
   <ol id="avtaler" class="avtaler"></ol>
 </section>
+</div>
 
 <main class="barn" id="barn"></main>
 
@@ -60,6 +73,6 @@
   </div>
 </div>
 
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

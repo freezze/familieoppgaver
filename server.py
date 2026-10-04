@@ -2,10 +2,15 @@
 
 Kun standardbibliotek. Data lagres som JSON i DATA_DIR (persistent volum i Coolify).
 """
+import hashlib
+import hmac
 import json
 import os
 import threading
+import time
+import urllib.request
 import uuid
+from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -15,6 +20,18 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
 PUBLIC = Path(__file__).parent / "public"
 LOCK = threading.Lock()
+
+# Tilgang: fra godkjente IP-er slipper man inn direkte, ellers må man taste koden.
+ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+ALLOWED_IPS = [x.strip() for x in os.environ.get("ALLOWED_IPS", "").split(",") if x.strip()]
+SECRET = (os.environ.get("COOKIE_SECRET") or SYNC_TOKEN or "lokal").encode()
+COOKIE = "tilgang"
+OPEN_PATHS = {"/health", "/api/calendar", "/api/sync", "/api/sync/set","/api/login", "/api/whoami", "/style.css", "/icon.svg", "/login.html"}
+FAILS = {}  # ip -> (antall, første forsøk)
+
+# Vær fra Yr / MET Norway (Skien)
+LAT, LON = os.environ.get("WEATHER_LAT", "59.2096"), os.environ.get("WEATHER_LON", "9.6090")
+WEATHER = {"data": None, "fetched": 0, "expires": 0, "last_modified": None}
 
 KIDS = [
     {"id": "bastian", "name": "Bastian", "color": "#3E9A5B", "cal": "Bastian", "birthday": "10-07", "born": 2015},
@@ -85,11 +102,76 @@ def tasks():
     return t
 
 
+def access_token():
+    return hmac.new(SECRET, ("kode:" + ACCESS_CODE).encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def weather():
+    """Henter varsel fra api.met.no, maks hvert 30. minutt (følger Expires)."""
+    now = time.time()
+    if WEATHER["data"] and now < max(WEATHER["expires"], WEATHER["fetched"] + 1800):
+        return WEATHER["data"]
+    url = f"https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={LAT}&lon={LON}"
+    headers = {"User-Agent": "familieoppgaver/1.0 https://github.com/freezze/familieoppgaver"}
+    if WEATHER["last_modified"]:
+        headers["If-Modified-Since"] = WEATHER["last_modified"]
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=10) as r:
+            raw = json.loads(r.read())
+            WEATHER["last_modified"] = r.headers.get("Last-Modified")
+        series = []
+        for e in raw["properties"]["timeseries"]:
+            d = e["data"]
+            nxt = d.get("next_1_hours") or d.get("next_6_hours") or {}
+            series.append({
+                "t": e["time"],
+                "temp": d["instant"]["details"].get("air_temperature"),
+                "wind": d["instant"]["details"].get("wind_speed"),
+                "sym": nxt.get("summary", {}).get("symbol_code"),
+                "pr": nxt.get("details", {}).get("precipitation_amount"),
+                "h": 1 if "next_1_hours" in d else 6,
+            })
+        WEATHER["data"] = {"series": series, "updated": raw["properties"]["meta"]["updated_at"]}
+    except urllib.error.HTTPError as err:
+        if err.code != 304:
+            print("vær feilet:", err, flush=True)
+    except Exception as err:
+        print("vær feilet:", err, flush=True)
+    WEATHER["fetched"] = now
+    WEATHER["expires"] = now + 1800
+    return WEATHER["data"]
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Familieoppgaver/1"
 
     def log_message(self, fmt, *args):
         pass
+
+    def client_ip(self):
+        # Traefik legger til klientens adresse i X-Forwarded-For; første ledd er den opprinnelige klienten.
+        xff = self.headers.get("X-Forwarded-For", "")
+        return (xff.split(",")[0].strip() if xff else "") or self.headers.get("X-Real-Ip") or self.client_address[0]
+
+    def ip_allowed(self):
+        ip = self.client_ip()
+        return any(ip == a or (a.endswith(".") and ip.startswith(a)) for a in ALLOWED_IPS)
+
+    def has_access(self):
+        if not ACCESS_CODE or self.ip_allowed():
+            return True
+        c = SimpleCookie(self.headers.get("Cookie", ""))
+        return COOKIE in c and hmac.compare_digest(c[COOKIE].value, access_token())
+
+    def guard(self, p):
+        """Returnerer True hvis forespørselen er stoppet (ingen tilgang)."""
+        if p in OPEN_PATHS or self.has_access():
+            return False
+        if p.startswith("/api/"):
+            self.send_json({"error": "kode"}, 401)
+        else:
+            self.send_file(PUBLIC / "login.html")
+        return True
 
     def send_json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False).encode()
@@ -120,6 +202,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
+        if self.guard(u.path):
+            return
+        if u.path == "/api/whoami":
+            return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access()})
+        if u.path == "/api/sync":
+            # Brukes av Macen for å speile dagens oppgaver i Påminnelser
+            if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
+                return self.send_json({"error": "nei"}, 403)
+            date = (q.get("date") or [""])[0][:10]
+            with LOCK:
+                return self.send_json({"kids": KIDS, "tasks": tasks(), "done": load("done.json", {}).get(date, {}),
+                                       "away": load("away.json", {}).get(date, [])})
+        if u.path == "/api/weather":
+            return self.send_json(weather() or {"series": []})
         if u.path == "/api/state":
             date = (q.get("date") or [""])[0][:10]
             with LOCK:
@@ -149,6 +245,43 @@ class Handler(BaseHTTPRequestHandler):
             body = self.read_body()
         except Exception:
             return self.send_json({"error": "ugyldig"}, 400)
+
+        if u.path == "/api/login":
+            ip, now = self.client_ip(), time.time()
+            n, first = FAILS.get(ip, (0, now))
+            if now - first > 900:
+                n, first = 0, now
+            if n >= 10:
+                return self.send_json({"error": "For mange forsøk. Vent litt og prøv igjen."}, 429)
+            if not ACCESS_CODE or not hmac.compare_digest(str(body.get("code", "")).strip(), ACCESS_CODE):
+                FAILS[ip] = (n + 1, first)
+                return self.send_json({"error": "Feil kode"}, 403)
+            FAILS.pop(ip, None)
+            payload = json.dumps({"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", f"{COOKIE}={access_token()}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax; Secure")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        if u.path == "/api/sync/set":
+            if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
+                return self.send_json({"error": "nei"}, 403)
+            date, tid = str(body.get("date", ""))[:10], str(body.get("taskId", ""))
+            with LOCK:
+                done = load("done.json", {})
+                day = done.setdefault(date, {})
+                if body.get("done"):
+                    day.setdefault(tid, {"by": body.get("by")})
+                else:
+                    day.pop(tid, None)
+                save("done.json", done)
+            return self.send_json({"ok": True})
+
+        if self.guard(u.path):
+            return
 
         if u.path == "/api/toggle":
             date, tid = str(body.get("date", ""))[:10], str(body.get("taskId", ""))
@@ -192,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"error": "ikke funnet"}, 404)
 
     def do_PUT(self):
+        if self.guard(urlparse(self.path).path):
+            return
         if urlparse(self.path).path != "/api/tasks":
             return self.send_json({"error": "ikke funnet"}, 404)
         try:

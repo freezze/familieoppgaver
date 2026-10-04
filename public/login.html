@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FBF6EE">
+<title>Dagens oppgaver</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
+<link rel="stylesheet" href="/style.css?v=2">
+<style>
+  body { min-height: 100vh; display: grid; place-items: center; }
+  .logginn { max-width: 340px; width: 100%; text-align: center; padding: 28px 22px; }
+  .logginn img { width: 64px; height: 64px; }
+  .logginn h1 { font-weight: 900; font-size: 1.5rem; margin: 10px 0 4px; }
+  .logginn p { color: var(--dempet); margin: 0 0 18px; font-weight: 600; }
+  .kode { font: 900 2rem/1 Nunito, sans-serif; letter-spacing: .4em; text-align: center; width: 100%; padding: 14px 0 14px .4em; border-radius: 14px; border: 2px solid var(--linje); background: var(--bg); color: var(--tekst); }
+  .kode:focus { outline: none; border-color: var(--tekst); }
+  .gaa { margin-top: 14px; width: 100%; border: 0; border-radius: 14px; padding: 14px; font-weight: 900; font-size: 1.1rem; background: var(--tekst); color: var(--bg); }
+  .feil { color: #C8453C; font-weight: 800; min-height: 1.4em; margin-top: 10px; }
+  .riste { animation: riste .35s; }
+  @keyframes riste { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+</style>
+</head>
+<body>
+<form class="kort logginn" id="skjema">
+  <img src="/icon.svg" alt="">
+  <h1>Dagens oppgaver</h1>
+  <p>Du er ikke hjemme. Tast koden for å komme inn.</p>
+  <input class="kode" id="kode" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" autofocus aria-label="Kode">
+  <button class="gaa">Gå inn</button>
+  <div class="feil" id="feil"></div>
+</form>
+<script>
+document.getElementById('skjema').onsubmit = async e => {
+  e.preventDefault();
+  const kode = document.getElementById('kode'), feil = document.getElementById('feil');
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: kode.value }) });
+  if (r.ok) return location.reload();
+  const d = await r.json().catch(() => ({}));
+  feil.textContent = d.error || 'Feil kode';
+  kode.value = '';
+  e.target.classList.remove('riste'); void e.target.offsetWidth; e.target.classList.add('riste');
+};
+</script>
+</body>
+</html>

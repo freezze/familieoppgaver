@@ -49,7 +49,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hint { margin: -4px 0 10px; font-size: .85rem; color: var(--dempet); }
 
 /* Kalender */
-.kalender { margin-bottom: 16px; }
+.kalender { grid-area: kal; }
 .heldag { display: flex; flex-wrap: wrap; gap: 6px; }
 .heldag:not(:empty) { margin-bottom: 10px; }
 .heldag span { border-radius: 999px; padding: 4px 12px; font-weight: 800; font-size: .9rem; color: #fff; }
@@ -127,4 +127,31 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .dato { min-width: 0; flex: 1; }
   .avtale { grid-template-columns: 74px 1fr; padding: 8px; }
   .kort { padding: 14px; }
+}
+
+/* Toppkort: kalender + vær */
+.toppkort { display: grid; grid-template-columns: 1.5fr 1fr; grid-template-areas: "kal vaer"; gap: 16px; margin-bottom: 16px; align-items: start; }
+.vaer { grid-area: vaer; }
+.toppkort > *, .barn > *, .bunn > * { min-width: 0; }
+.vaer-naa { display: flex; align-items: center; gap: 12px; }
+.vaer-naa img { width: 64px; height: 64px; }
+.grader { font-size: 2.6rem; font-weight: 900; line-height: 1; }
+.grader.kald, .vaer-timer .kald, .vaer-dager .kald { color: #3B78C2; }
+.grader.varm, .vaer-timer .varm, .vaer-dager .varm { color: #D2452F; }
+.vaer-detalj { font-size: .85rem; color: var(--dempet); font-weight: 700; }
+.vaer-tips { margin: 10px 0 0; padding: 8px 12px; border-radius: 12px; background: var(--flate); font-weight: 800; font-size: .95rem; }
+.vaer-timer { list-style: none; margin: 12px 0 0; padding: 0 0 4px; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.vaer-timer::-webkit-scrollbar { display: none; }
+.vaer-timer li { flex: 1 0 44px; text-align: center; font-size: .8rem; font-weight: 800; }
+.vaer-timer img { width: 30px; height: 30px; display: block; margin: 2px auto; }
+.vaer-timer .kl { color: var(--dempet); }
+.regn { color: #3B78C2; font-size: .7rem; min-height: 1em; }
+.vaer-dager { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px solid var(--linje); display: grid; gap: 2px; }
+.vaer-dager li { display: grid; grid-template-columns: 1fr 30px 86px 52px; align-items: center; gap: 6px; font-weight: 800; font-size: .9rem; }
+.vaer-dager img { width: 28px; height: 28px; }
+.vaer-dager .mm { color: #3B78C2; font-size: .8rem; text-align: right; }
+.kreditt { margin-top: 10px; font-size: .7rem; color: var(--dempet); }
+.kreditt a, .vaer a.liten { color: var(--dempet); }
+@media (max-width: 900px) {
+  .toppkort { grid-template-columns: 1fr; grid-template-areas: "vaer" "kal"; }
 }

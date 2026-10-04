@@ -16,6 +16,7 @@ function farge(owner) { return owner === 'felles' ? FELLES_FARGE : barn(owner)?.
 
 async function hent() {
   const r = await fetch(`/api/state?date=${iso(valgt)}`, { cache: 'no-store' });
+  if (r.status === 401) return location.reload();
   state = await r.json();
   tegn();
 }
@@ -161,6 +162,83 @@ document.addEventListener('click', async e => {
   if (h) { $('velger').hidden = true; return lokal($('velger').dataset.id, h.dataset.hvem); }
   if (e.target.id === 'velger' || e.target.id === 'velger-avbryt') $('velger').hidden = true;
 });
+
+// ---------- Vær fra Yr ----------
+const IKON = s => `https://cdn.jsdelivr.net/gh/metno/weathericons@main/weather/svg/${s}.svg`;
+function vaerTekst(sym = '') {
+  const s = sym.replace(/_(day|night|polartwilight)$/, '');
+  const t = { clearsky: 'Klarvær', fair: 'Lettskyet', partlycloudy: 'Delvis skyet', cloudy: 'Skyet', fog: 'Tåke',
+    lightrain: 'Lett regn', rain: 'Regn', heavyrain: 'Kraftig regn', lightrainshowers: 'Lette regnbyger',
+    rainshowers: 'Regnbyger', heavyrainshowers: 'Kraftige regnbyger' }[s];
+  if (t) return t;
+  if (s.includes('thunder')) return 'Torden';
+  if (s.includes('snow')) return 'Snø';
+  if (s.includes('sleet')) return 'Sludd';
+  return 'Regn';
+}
+const tempKlasse = t => t <= 0 ? 'kald' : t >= 20 ? 'varm' : '';
+const grad = t => `${Math.round(t)}°`;
+
+async function hentVaer() {
+  try {
+    const r = await fetch('/api/weather', { cache: 'no-store' });
+    if (!r.ok) return;
+    const { series = [] } = await r.json();
+    tegnVaer(series.map(x => ({ ...x, d: new Date(x.t) })));
+  } catch (e) { /* prøver igjen senere */ }
+}
+
+function tegnVaer(s) {
+  const naa = Date.now();
+  const kommende = s.filter(x => x.d.getTime() > naa - 36e5);
+  if (!kommende.length) return;
+  const n = kommende[0];
+  $('vaer-naa').innerHTML = `${n.sym ? `<img src="${IKON(n.sym)}" alt="">` : ''}
+    <div><div class="grader ${tempKlasse(n.temp)}">${grad(n.temp)}</div>
+    <div class="vaer-detalj">${vaerTekst(n.sym)} · vind ${Math.round(n.wind)} m/s</div></div>`;
+
+  // Resten av dagen (til kl. 22) – grunnlag for tips til barna
+  const kveld = new Date(); kveld.setHours(22, 0, 0, 0);
+  const iDag = kommende.filter(x => x.d <= kveld && x.h === 1);
+  const regn = iDag.reduce((a, x) => a + (x.pr || 0), 0);
+  const min = Math.min(...iDag.map(x => x.temp), n.temp), maks = Math.max(...iDag.map(x => x.temp), n.temp);
+  const vind = Math.max(...iDag.map(x => x.wind), n.wind);
+  const tips = [];
+  if (iDag.some(x => (x.sym || '').includes('snow'))) tips.push('⛄ Snø i dag – vinterklær på!');
+  else if (regn >= 1) tips.push('☔ Regn i dag – ta med regnjakke');
+  else if (regn > 0.2) tips.push('🌂 Kan komme litt regn');
+  if (min < 0) tips.push('🧤 Kaldt – lue og votter');
+  else if (min < 8) tips.push('🧥 Kjølig – ta på jakke');
+  if (vind >= 10) tips.push('💨 Mye vind i dag');
+  if (maks >= 22 && regn < 0.2) tips.push('😎 Varmt – husk vannflaske');
+  $('vaer-tips').hidden = !tips.length;
+  $('vaer-tips').textContent = tips.slice(0, 2).join('  ·  ');
+
+  $('vaer-timer').innerHTML = kommende.filter(x => x.h === 1).slice(1, 13).map(x => `<li>
+    <div class="kl">${String(x.d.getHours()).padStart(2, '0')}</div>
+    ${x.sym ? `<img src="${IKON(x.sym)}" alt="${vaerTekst(x.sym)}">` : ''}
+    <div class="${tempKlasse(x.temp)}">${grad(x.temp)}</div>
+    <div class="regn">${x.pr ? x.pr.toFixed(1) : ''}</div></li>`).join('');
+
+  const dager = [];
+  for (let i = 0; i < 3; i++) {
+    const fra = startOfDay(new Date(naa + i * 864e5)), til = new Date(fra.getTime() + 864e5);
+    const del = s.filter(x => x.d >= fra && x.d < til);
+    if (!del.length) continue;
+    const midt = del.reduce((a, x) => Math.abs(x.d.getHours() - 13) < Math.abs(a.d.getHours() - 13) ? x : a);
+    dager.push({
+      navn: i === 0 ? 'I dag' : i === 1 ? 'I morgen' : DAGER[ukedag(fra)].replace(/^./, c => c.toUpperCase()),
+      sym: midt.sym, min: Math.min(...del.map(x => x.temp)), maks: Math.max(...del.map(x => x.temp)),
+      pr: del.reduce((a, x) => a + (x.pr || 0), 0),
+    });
+  }
+  $('vaer-dager').innerHTML = dager.map(d => `<li><span>${d.navn}</span>
+    ${d.sym ? `<img src="${IKON(d.sym)}" alt="${vaerTekst(d.sym)}">` : '<span></span>'}
+    <span><span class="${tempKlasse(d.maks)}">${grad(d.maks)}</span> / <span class="${tempKlasse(d.min)}">${grad(d.min)}</span></span>
+    <span class="mm">${d.pr >= 0.1 ? d.pr.toFixed(1) + ' mm' : ''}</span></li>`).join('');
+}
+hentVaer();
+setInterval(hentVaer, 15 * 60000);
 
 function flytt(n) { valgt = startOfDay(new Date(valgt.getTime() + n * 864e5 + 36e5 * 3)); hent(); }
 $('forrige').onclick = () => flytt(-1);
