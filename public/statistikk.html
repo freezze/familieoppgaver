@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistikk</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
+<link rel="stylesheet" href="style.css?v=3">
+<style>
+  h1 { text-align: center; font-weight: 900; margin: 6px 0 4px; }
+  .under { text-align: center; color: var(--dempet); margin: 0 0 14px; font-weight: 600; }
+  .periode { display: flex; justify-content: center; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+  .periode button { border: 1px solid var(--linje); background: var(--kort); border-radius: 999px; padding: 6px 14px; font-weight: 800; }
+  .periode button.på { background: var(--tekst); color: var(--bg); border-color: var(--tekst); }
+  .stat-barn { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .stat-barn > * { min-width: 0; }
+  .barnekort { border-top: 6px solid var(--farge); }
+  .barnekort h2 { color: var(--farge); font-size: 1.4rem; }
+  .tall { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+  .tall div { background: var(--flate); border-radius: 12px; padding: 10px 6px; text-align: center; }
+  .tall b { display: block; font-size: 1.6rem; font-weight: 900; line-height: 1.1; color: var(--tekst); }
+  .tall span { font-size: .75rem; color: var(--dempet); font-weight: 800; }
+  .seksjon-tittel { font-size: .8rem; font-weight: 900; color: var(--dempet); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+  /* Ukestolper */
+  .uker { display: flex; align-items: flex-end; gap: 2px; height: 90px; border-bottom: 1px solid var(--linje); }
+  .uke { flex: 1; height: 100%; display: flex; align-items: flex-end; position: relative; cursor: default; }
+  .uke i { display: block; width: 100%; background: var(--farge); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .uke.tom i { background: var(--linje); }
+  .akse { display: flex; justify-content: space-between; font-size: .7rem; color: var(--dempet); font-weight: 700; margin-top: 4px; }
+  /* Dagsrutenett */
+  .dager { display: grid; grid-template-rows: repeat(7, 14px); grid-auto-flow: column; grid-auto-columns: 14px; gap: 3px; overflow-x: auto; padding-bottom: 2px; }
+  .dag { width: 14px; height: 14px; border-radius: 3px; background: var(--flate); }
+  .dag.borte { background: repeating-linear-gradient(135deg, var(--flate) 0 3px, transparent 3px 6px); }
+  .forklaring { display: flex; align-items: center; gap: 6px; font-size: .72rem; color: var(--dempet); font-weight: 700; margin-top: 6px; flex-wrap: wrap; }
+  .forklaring .dag { width: 12px; aspect-ratio: 1; }
+  /* Tidspunkt */
+  .timer { display: flex; align-items: flex-end; gap: 1px; height: 50px; }
+  .timer i { flex: 1; background: var(--farge); border-radius: 2px 2px 0 0; min-height: 1px; opacity: .85; }
+  /* Tabeller */
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { text-align: left; font-size: .75rem; color: var(--dempet); font-weight: 900; text-transform: uppercase; padding: 6px 4px; border-bottom: 1px solid var(--linje); }
+  td { padding: 7px 4px; border-bottom: 1px solid var(--linje); font-weight: 700; vertical-align: middle; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .strek { height: 6px; border-radius: 999px; background: var(--flate); overflow: hidden; min-width: 60px; }
+  .strek i { display: block; height: 100%; background: var(--farge); border-radius: 999px; }
+  .chip { display: inline-block; font-size: .72rem; font-weight: 900; color: #fff; background: var(--farge); border-radius: 999px; padding: 1px 8px; }
+  .to { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .to > * { min-width: 0; }
+  .filter { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .filter button { border: 1px solid var(--linje); background: var(--kort); border-radius: 999px; padding: 4px 12px; font-weight: 800; font-size: .85rem; }
+  .filter button.på { background: var(--farge, var(--tekst)); border-color: var(--farge, var(--tekst)); color: #fff; }
+  .tomt-stor { text-align: center; padding: 30px 10px; color: var(--dempet); font-weight: 700; }
+  .lagre { display: flex; justify-content: center; margin-top: 18px; }
+  .lagre a { border: 1px solid var(--linje); border-radius: 999px; padding: 12px 22px; font-weight: 900; background: var(--kort); color: var(--tekst); text-decoration: none; }
+  @media (max-width: 900px) { .stat-barn, .to { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>📊 Statistikk</h1>
+<p class="under">Hva barna har gjort, og når. Dager der barnet ikke var hjemme telles ikke med.</p>
+<div class="periode" id="periode">
+  <button data-d="7">Siste uke</button><button data-d="28" class="på">4 uker</button><button data-d="84">12 uker</button><button data-d="365">Hele året</button>
+</div>
+<div id="innhold"><div class="tomt-stor">Henter …</div></div>
+<div class="lagre"><a href="/">← Tilbake til tavla</a></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const DAG = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+let data = null, dager = 28, loggFilter = 'alle';
+
+async function hent() {
+  const r = await fetch(`/api/stats?days=${Math.max(dager, 84)}`, { cache: 'no-store' });
+  if (r.status === 401) return location.reload();
+  data = await r.json();
+  tegn();
+}
+
+function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function pst(a, b) { return b ? Math.round(100 * a / b) : null; }
+
+// Regn ut tall per barn for valgt periode
+function beregn() {
+  const fra = iso(new Date(Date.now() - (dager - 1) * 864e5));
+  const datoer = Object.keys(data.plans).filter(d => d >= fra).sort();
+  const res = {};
+  for (const k of data.kids) res[k.id] = { egne: 0, gjort: 0, felles: 0, hjemme: 0, fulle: 0, rekke: 0, besteRekke: 0, timer: Array(24).fill(0), perDag: {}, perUke: {}, perOppgave: {} };
+  const logg = [];
+  for (const d of datoer) {
+    const p = data.plans[d], done = data.done[d] || {};
+    for (const k of data.kids) {
+      const r = res[k.id], ids = p.kids[k.id];
+      if (!ids) { r.perDag[d] = null; r.rekke = 0; continue; }
+      const g = ids.filter(id => done[id]).length;
+      r.hjemme++; r.egne += ids.length; r.gjort += g;
+      r.perDag[d] = ids.length ? g / ids.length : null;
+      if (ids.length && g === ids.length) { r.fulle++; r.rekke++; r.besteRekke = Math.max(r.besteRekke, r.rekke); } else if (ids.length) r.rekke = 0;
+      const dt = new Date(d + 'T12:00:00'), man = new Date(dt.getTime() - ((dt.getDay() + 6) % 7) * 864e5), uke = iso(man);
+      const u = r.perUke[uke] ||= { egne: 0, gjort: 0 }; u.egne += ids.length; u.gjort += g;
+      for (const id of ids) { const o = r.perOppgave[id] ||= { tittel: p.titles[id], n: 0, g: 0 }; o.n++; if (done[id]) o.g++; }
+    }
+    for (const [id, v] of Object.entries(done)) {
+      const eier = p.owners?.[id] || 'felles', hvem = v.by || (eier !== 'felles' ? eier : null);
+      if (eier === 'felles' && hvem && res[hvem]) res[hvem].felles++;
+      if (hvem && res[hvem] && v.at && !isNaN(new Date(v.at))) res[hvem].timer[new Date(v.at).getHours()]++;
+      logg.push({ d, at: v.at, hvem, tittel: p.titles[id] || 'Slettet oppgave', felles: eier === 'felles', via: v.via });
+    }
+  }
+  logg.sort((a, b) => (b.at || b.d).localeCompare(a.at || a.d));
+  return { res, logg, datoer };
+}
+
+function farge(id) { return data.kids.find(k => k.id === id)?.color || '#8A6BB8'; }
+function navn(id) { return data.kids.find(k => k.id === id)?.name || '?'; }
+
+function tegn() {
+  if (!Object.keys(data.plans).length) {
+    $('innhold').innerHTML = '<div class="kort tomt-stor">Ingen data ennå. Statistikken fylles opp fra og med i dag. 🌱</div>';
+    return;
+  }
+  const { res, logg } = beregn();
+  const sisteDager = [...Array(dager)].map((_, i) => iso(new Date(Date.now() - (dager - 1 - i) * 864e5)));
+
+  const kort = data.kids.map(k => {
+    const r = res[k.id], p = pst(r.gjort, r.egne);
+    const uker = Object.entries(r.perUke).sort(([a], [b]) => a.localeCompare(b));
+    const maksT = Math.max(1, ...r.timer);
+    const oppg = Object.values(r.perOppgave).sort((a, b) => a.g / a.n - b.g / b.n);
+    return `<section class="kort barnekort" style="--farge:${k.color}">
+      <h2>${esc(k.name)}</h2>
+      ${r.hjemme ? `
+      <div class="tall">
+        <div><b>${p ?? '–'}%</b><span>av egne gjort</span></div>
+        <div><b>${r.felles}</b><span>felles tatt</span></div>
+        <div><b>${r.besteRekke}</b><span>dager på rad<br>med alt gjort</span></div>
+      </div>
+      <div class="seksjon-tittel">Dag for dag</div>
+      <div class="dager">${'<div></div>'.repeat((new Date(sisteDager[0] + 'T12:00:00').getDay() + 6) % 7)}${sisteDager.map(d => {
+        const v = r.perDag[d];
+        if (v === undefined) return `<div class="dag" title="${d}: ingen data"></div>`;
+        if (v === null) return `<div class="dag borte" title="${d}: ikke hjemme"></div>`;
+        return `<div class="dag" style="background:color-mix(in srgb, ${k.color} ${Math.round(15 + 85 * v)}%, var(--flate))" title="${d}: ${Math.round(v * 100)} % gjort"></div>`;
+      }).join('')}</div>
+      <div class="forklaring">0 %<span class="dag" style="background:color-mix(in srgb, ${k.color} 15%, var(--flate))"></span><span class="dag" style="background:color-mix(in srgb, ${k.color} 57%, var(--flate))"></span><span class="dag" style="background:${k.color}"></span>100 % · <span class="dag borte"></span> ikke hjemme</div>
+      ${uker.length > 1 ? `<div class="seksjon-tittel">Uke for uke</div>
+      <div class="uker">${uker.map(([u, x]) => { const v = pst(x.gjort, x.egne); return `<div class="uke ${v === null ? 'tom' : ''}" title="Uke fra ${u}: ${v ?? '–'} % (${x.gjort} av ${x.egne})"><i style="height:${v ?? 0}%"></i></div>`; }).join('')}</div>
+      <div class="akse"><span>${uker[0][0].slice(5)}</span><span>${uker.at(-1)[0].slice(5)}</span></div>` : ''}
+      <div class="seksjon-tittel">Når på døgnet</div>
+      <div class="timer">${r.timer.map((n, h) => `<i style="height:${100 * n / maksT}%" title="kl. ${h}: ${n} oppgaver"></i>`).join('')}</div>
+      <div class="akse"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+      <div class="seksjon-tittel">Oppgavene</div>
+      <table>${oppg.map(o => { const v = pst(o.g, o.n); return `<tr><td>${esc(o.tittel)}</td><td style="width:30%"><div class="strek"><i style="width:${v}%"></i></div></td><td class="n">${o.g}/${o.n}</td></tr>`; }).join('')}</table>
+      ` : '<div class="tomt-stor">Ikke hjemme i perioden</div>'}
+    </section>`;
+  }).join('');
+
+  const viste = logg.filter(l => loggFilter === 'alle' || l.hvem === loggFilter).slice(0, 60);
+  const loggHtml = `<section class="kort">
+    <div class="kort-hode"><h2>🕑 Siste avkrysninger</h2></div>
+    <div class="filter">${['alle', ...data.kids.map(k => k.id)].map(id => `<button data-logg="${id}" class="${loggFilter === id ? 'på' : ''}" style="${id !== 'alle' ? `--farge:${farge(id)}` : ''}">${id === 'alle' ? 'Alle' : esc(navn(id))}</button>`).join('')}</div>
+    <table><tr><th>Når</th><th>Hvem</th><th>Oppgave</th></tr>
+    ${viste.map(l => {
+      const t = l.at && !isNaN(new Date(l.at)) ? new Date(l.at) : null;
+      const når = t ? `${DAG[t.getDay()]} ${t.getDate()}.${t.getMonth() + 1} kl. ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : l.d;
+      return `<tr><td class="n" style="text-align:left">${når}</td><td>${l.hvem ? `<span class="chip" style="--farge:${farge(l.hvem)}">${esc(navn(l.hvem))}</span>` : '–'}</td><td>${esc(l.tittel)}${l.felles ? ' <span class="liten">(felles)</span>' : ''}${l.via === 'påminnelser' ? ' <span class="liten">📱</span>' : ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="tomt">Ingen avkrysninger i perioden</td></tr>'}
+    </table></section>`;
+
+  const fellesTatt = data.kids.map(k => ({ k, n: res[k.id].felles }));
+  const maksF = Math.max(1, ...fellesTatt.map(x => x.n));
+  const fellesHtml = `<section class="kort">
+    <div class="kort-hode"><h2>🤝 Hvem tar felles-oppgavene?</h2></div>
+    <table>${fellesTatt.map(({ k, n }) => `<tr style="--farge:${k.color}"><td style="width:90px"><span class="chip">${esc(k.name)}</span></td><td><div class="strek" style="height:12px"><i style="width:${100 * n / maksF}%"></i></div></td><td class="n">${n}</td></tr>`).join('')}</table>
+    <p class="hint" style="margin-top:10px">📱 = huket av i Påminnelser på mobil/iPad. Hold over rutene og søylene for detaljer.</p>
+  </section>`;
+
+  $('innhold').innerHTML = `<div class="stat-barn">${kort}</div><div class="to">${fellesHtml}${loggHtml}</div>`;
+}
+
+$('periode').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  dager = +b.dataset.d;
+  document.querySelectorAll('#periode button').forEach(x => x.classList.toggle('på', x === b));
+  hent();
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-logg]');
+  if (b) { loggFilter = b.dataset.logg; tegn(); }
+});
+hent();
+</script>
+</body>
+</html>

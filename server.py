@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.request
 import uuid
+from datetime import date as Date, datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -42,6 +43,10 @@ KIDS = [
     {"id": "william", "name": "William", "color": "#E07B24", "cal": "William", "birthday": "12-08", "born": 2009},
 ]
 FELLES_CAL = "Fellesplan"
+# Bor hos oss bare i barneuker: heldagshendelse «Barneuke» i Fellesplan.
+# Heldagshendelser med «pappa» i navnet (f.eks. «C+W ferie med pappa») betyr også borte.
+PART_TIME = {"cadence", "william"}
+KEEP_DAYS = 400
 
 # Dager: 0 = mandag ... 6 = søndag. Tom liste = hver dag.
 DEFAULT_TASKS = [
@@ -103,6 +108,71 @@ def tasks():
         t = [dict(x, id=uuid.uuid4().hex[:8]) for x in DEFAULT_TASKS]
         save("tasks.json", t)
     return t
+
+
+def covers(e, day):
+    s, end = e["start"][:10], e["end"][:10]
+    if end > s and e["end"][11:19] == "00:00:00":
+        return s <= day < end  # slutt ved midnatt er eksklusiv
+    return s <= day <= end
+
+
+def auto_away(day):
+    """Hvem som er borte ifølge Fellesplan. Utenfor perioden kalenderen dekker: ingen."""
+    cal = load("calendar.json", {})
+    gen = cal.get("generated")
+    if not gen:
+        return set(), {}
+    g = Date.fromisoformat(gen[:10])
+    if not (g - timedelta(days=1) <= Date.fromisoformat(day) <= g + timedelta(days=7)):
+        return set(), {}
+    fe = [e for e in cal.get("events", []) if e.get("cal") == FELLES_CAL and e.get("allDay") and covers(e, day)]
+    away, why = set(), {}
+    if not any("barneuke" in e["title"].lower() for e in fe):
+        for k in PART_TIME:
+            away.add(k)
+            why[k] = "Ikke barneuke"
+    for e in fe:
+        if "pappa" in e["title"].lower():
+            for k in PART_TIME:
+                away.add(k)
+                why[k] = e["title"]
+    return away, why
+
+
+def away_for(day):
+    """Effektiv borte-liste: kalender + manuelle overstyringer («Ikke hjemme» / «Hjemme likevel»)."""
+    auto, why = auto_away(day)
+    manual = load("away.json", {}).get(day, {})
+    if isinstance(manual, list):
+        manual = {k: True for k in manual}
+    away = [k["id"] for k in KIDS if manual.get(k["id"], k["id"] in auto)]
+    reasons = {k: ("Satt manuelt" if k in manual else why.get(k, "")) for k in away}
+    return away, reasons, manual, auto
+
+
+def applies(t, day):
+    return not t["days"] or Date.fromisoformat(day).weekday() in t["days"]
+
+
+def record_plan(day):
+    """Lagrer hvilke oppgaver som gjaldt denne dagen – grunnlaget for statistikken."""
+    away, _, _, _ = away_for(day)
+    t = [x for x in tasks() if applies(x, day)]
+    plan = {"kids": {k["id"]: [x["id"] for x in t if x["owner"] == k["id"]] for k in KIDS if k["id"] not in away},
+            "felles": [x["id"] for x in t if x["owner"] == "felles"], "away": away,
+            "titles": {x["id"]: f'{x["emoji"]} {x["title"]}'.strip() for x in t},
+            "owners": {x["id"]: x["owner"] for x in t}}
+    plans = load("plans.json", {})
+    if plans.get(day) != plan:
+        plans[day] = plan
+        for k in sorted(plans)[:-KEEP_DAYS]:
+            del plans[k]
+        save("plans.json", plans)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def sign(text):
@@ -204,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
         """Returnerer True hvis forespørselen er stoppet (ingen tilgang)."""
         if p in OPEN_PATHS:
             return False
-        admin_needed = p in ("/admin", "/admin/", "/admin.html", "/api/tasks")
+        admin_needed = p in ("/admin", "/admin/", "/admin.html", "/api/tasks", "/statistikk", "/statistikk.html", "/api/stats")
         if (self.is_admin() or not ADMIN_CODE) if admin_needed else self.has_access():
             return False
         if p.startswith("/api/"):
@@ -255,30 +325,43 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "nei"}, 403)
             date = (q.get("date") or [""])[0][:10]
             with LOCK:
+                record_plan(date)
                 return self.send_json({"kids": KIDS, "tasks": tasks(), "done": load("done.json", {}).get(date, {}),
-                                       "away": load("away.json", {}).get(date, [])})
+                                       "away": away_for(date)[0]})
         if u.path == "/api/weather":
             return self.send_json(weather() or {"series": []})
         if u.path == "/api/state":
             date = (q.get("date") or [""])[0][:10]
+            today = (q.get("today") or [""])[0][:10]
             with LOCK:
                 done = load("done.json", {})
-                away = load("away.json", {})
+                away, reasons, _, _ = away_for(date)
                 cal = load("calendar.json", {"events": [], "generated": None})
                 t = tasks()
+                if date and date == today:
+                    record_plan(date)
             return self.send_json({
                 "kids": KIDS, "fellesCal": FELLES_CAL, "tasks": t,
-                "done": done.get(date, {}), "away": away.get(date, []),
+                "done": done.get(date, {}), "away": away, "awayReason": reasons,
                 "events": cal.get("events", []), "calendarUpdated": cal.get("generated"),
                 "me": self.me(),
             })
+        if u.path == "/api/stats":
+            if not self.is_admin():
+                return self.send_json({"error": "kode"}, 401)
+            days = min(int((q.get("days") or ["84"])[0]), KEEP_DAYS)
+            with LOCK:
+                plans, done = load("plans.json", {}), load("done.json", {})
+            keys = sorted(plans)[-days:]
+            return self.send_json({"kids": KIDS, "plans": {d: plans[d] for d in keys},
+                                   "done": {d: done.get(d, {}) for d in keys}})
         if u.path == "/api/tasks":
             with LOCK:
                 codes = load("codes.json", {})
                 return self.send_json({"kids": [dict(k, hasCode=k["id"] in codes) for k in KIDS], "tasks": tasks()})
         if u.path == "/health":
             return self.send_json({"ok": True})
-        name = "admin.html" if u.path in ("/admin", "/admin/") else (u.path.lstrip("/") or "index.html")
+        name = {"/admin": "admin.html", "/admin/": "admin.html", "/statistikk": "statistikk.html"}.get(u.path) or (u.path.lstrip("/") or "index.html")
         f = (PUBLIC / name).resolve()
         if PUBLIC.resolve() in f.parents and f.is_file():
             return self.send_file(f)
@@ -333,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                 done = load("done.json", {})
                 day = done.setdefault(date, {})
                 if body.get("done"):
-                    day.setdefault(tid, {"by": body.get("by")})
+                    day.setdefault(tid, {"by": body.get("by"), "at": body.get("at") or now_iso(), "via": "påminnelser"})
                 else:
                     day.pop(tid, None)
                 save("done.json", done)
@@ -372,9 +455,9 @@ class Handler(BaseHTTPRequestHandler):
                 if tid in day:
                     del day[tid]
                 else:
-                    day[tid] = {"by": by}
-                # Behold bare de siste 60 dagene
-                for k in sorted(done)[:-60]:
+                    day[tid] = {"by": by, "at": now_iso(), "via": "skjerm"}
+                record_plan(date)
+                for k in sorted(done)[:-KEEP_DAYS]:
                     del done[k]
                 save("done.json", done)
                 return self.send_json({"done": day})
@@ -382,16 +465,20 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/away":
             date, kid = str(body.get("date", ""))[:10], str(body.get("kid", ""))
             with LOCK:
-                away = load("away.json", {})
-                lst = away.setdefault(date, [])
-                if kid in lst:
-                    lst.remove(kid)
+                eff, _, manual, auto = away_for(date)
+                manual = dict(manual)
+                new = kid not in eff  # snu det som gjelder nå
+                if new == (kid in auto):
+                    manual.pop(kid, None)  # samme som kalenderen – ingen overstyring trengs
                 else:
-                    lst.append(kid)
-                for k in sorted(away)[:-60]:
-                    del away[k]
-                save("away.json", away)
-                return self.send_json({"away": lst})
+                    manual[kid] = new
+                allaway = load("away.json", {})
+                allaway[date] = manual
+                for k in sorted(allaway)[:-KEEP_DAYS]:
+                    del allaway[k]
+                save("away.json", allaway)
+                away, reasons, _, _ = away_for(date)
+                return self.send_json({"away": away, "awayReason": reasons})
 
         if u.path == "/api/calendar":
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:

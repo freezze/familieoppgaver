@@ -41,7 +41,7 @@
 </div>
 <script>
 const $ = id => document.getElementById(id);
-const ADMIN = location.pathname.startsWith('/admin');
+const ADMIN = /^\/(admin|statistikk)/.test(location.pathname);
 let hvem = null;
 
 function velg(id, navn, farge) {

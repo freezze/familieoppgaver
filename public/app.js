@@ -15,7 +15,7 @@ function barn(id) { return state.kids.find(k => k.id === id); }
 function farge(owner) { return owner === 'felles' ? FELLES_FARGE : barn(owner)?.color; }
 
 async function hent() {
-  const r = await fetch(`/api/state?date=${iso(valgt)}`, { cache: 'no-store' });
+  const r = await fetch(`/api/state?date=${iso(valgt)}&today=${iso(new Date())}`, { cache: 'no-store' });
   if (r.status === 401) return location.reload();
   state = await r.json();
   tegn();
@@ -108,7 +108,7 @@ function tegnBarn() {
         <button class="borte-knapp" data-borte="${k.id}">${borte ? 'Hjemme likevel' : 'Ikke hjemme'}</button></div>
       <div class="fremdrift"><div style="width:${alle.length ? 100 * ferdige / alle.length : 0}%"></div></div>
       <div class="teller">${altFerdig ? 'Alt er gjort!' : `${ferdige} av ${alle.length} gjort`}</div>
-      <div class="borte-tekst">Ikke hjemme i dag 👋</div>
+      <div class="borte-tekst">Ikke hjemme ${erIdag() ? 'i dag' : 'denne dagen'} 👋${state.awayReason?.[k.id] ? `<br><span class="liten">${esc(state.awayReason[k.id])}</span>` : ''}</div>
       <ul class="liste">${egne.map(t => oppgaveKnapp(t)).join('')}</ul>
       ${alle.length > egne.length ? `<div class="teller" style="margin:10px 0 0">+ ${alle.length - egne.length} i «Bare i dag» nederst</div>` : ''}
       <div class="ferdig-melding">Bra jobba, ${esc(k.name)}! ⭐</div>
@@ -160,7 +160,7 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-borte]');
   if (b) {
     const r = await post('/api/away', { date: iso(valgt), kid: b.dataset.borte });
-    state.away = r.away; return tegn();
+    state.away = r.away; state.awayReason = r.awayReason; return tegn();
   }
   const h = e.target.closest('[data-hvem]');
   if (h) { $('velger').hidden = true; return lokal($('velger').dataset.id, h.dataset.hvem); }

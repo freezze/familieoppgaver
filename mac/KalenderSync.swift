@@ -134,7 +134,9 @@ for t in tasks {
         else if remDone != p { final = remDone; by = completers.first }  // endret i Påminnelser
     } else if remDone && !srvDone { final = true; by = completers.first }
     if final != srvDone {
-        _ = http("POST", "/api/sync/set", ["date": today, "taskId": tid, "done": final, "by": by ?? NSNull()])
+        let doneAt = completers.compactMap { byKey["\(today)/\(tid)/\($0)"]?.completionDate }.first
+        _ = http("POST", "/api/sync/set", ["date": today, "taskId": tid, "done": final, "by": by ?? NSNull(),
+                                           "at": doneAt.map { iso.string(from: $0) } ?? NSNull()])
         log("nettside: \(t["title"] as? String ?? "") -> \(final ? "gjort" : "ikke gjort")")
     }
     if final && by == nil { by = completers.first ?? (owner == "felles" ? nil : owner) }
