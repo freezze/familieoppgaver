@@ -4,6 +4,8 @@ const $ = id => document.getElementById(id);
 
 let valgt = startOfDay(new Date());
 let state = null;
+let familievisning = false;
+try { familievisning = localStorage.getItem('familievisning') === '1'; } catch (e) { /* privat modus */ }
 
 function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
@@ -26,6 +28,10 @@ async function post(url, body) {
   return r.json();
 }
 
+// Innlogget barn ser sin egen side (med sitt tema), med mindre de har valgt hele familien.
+function megBarn() { return state.kids.find(k => k.id === state.me) || null; }
+function personlig() { const k = megBarn(); return k && !familievisning ? k : null; }
+
 function gjelderIdag(t) { return !t.days.length || t.days.includes(ukedag(valgt)); }
 
 function tegn() {
@@ -43,15 +49,47 @@ function tegn() {
   $('bursdag').hidden = !bursdagsbarn.length;
   $('bursdag').textContent = bursdagsbarn.map(k => `🎂 Gratulerer med ${valgt.getFullYear() - k.born}-årsdagen, ${k.name}! 🎉`).join(' ');
 
+  const p = personlig();
+  document.body.classList.toggle('personlig', !!p);
+  document.body.style.setProperty('--bilde', p?.bg ? `url("${p.bg}")` : 'none');
+  document.body.style.setProperty('--tema', p?.color || '');
+  $('hilsen').hidden = !p;
+  if (p) $('hilsen').textContent = `${p.tema || ''} Hei, ${p.name}!`;
+  $('min').hidden = !p;
+  $('barn').hidden = !!p;
+  $('dagens-kort').hidden = !!p;
+  $('foreldrelenker').hidden = state.me !== 'foreldre';
+  $('visning').hidden = !megBarn();
+  $('visning').textContent = p ? 'Se hele familien' : 'Bare mine oppgaver';
+
   tegnKalender();
-  tegnBarn();
+  if (p) tegnMin(p); else tegnBarn();
   tegnBunn();
+}
+
+function tegnMin(k) {
+  const mine = state.tasks.filter(t => t.owner === k.id && gjelderIdag(t));
+  const borte = state.away.includes(k.id);
+  const ferdige = mine.filter(t => state.done[t.id]).length;
+  $('min').style.setProperty('--farge', k.color);
+  $('min-tittel').textContent = erIdag() ? 'Dine oppgaver i dag' : `Dine oppgaver ${DAGER[ukedag(valgt)]}`;
+  $('min-teller').textContent = borte || !mine.length ? '' : `${ferdige} av ${mine.length} gjort`;
+  $('min-frem').parentElement.hidden = borte || !mine.length;
+  $('min-frem').style.width = mine.length ? `${100 * ferdige / mine.length}%` : '0';
+  $('min-liste').innerHTML = borte ? '' : mine.map(t => oppgaveKnapp(t)).join('');
+  const melding = borte ? `${state.awayReason?.[k.id] || 'Ikke hjemme'} ${erIdag() ? 'i dag' : 'denne dagen'} – ingen oppgaver 🎉`
+    : !mine.length ? 'Ingen oppgaver i dag 😎'
+    : ferdige === mine.length ? `Alt er gjort – bra jobba, ${k.name}! ⭐` : '';
+  $('min-ferdig').hidden = !melding;
+  $('min-ferdig').textContent = melding;
 }
 
 function tegnKalender() {
   const fra = valgt, til = new Date(valgt.getTime() + 864e5);
   const navnFor = cal => state.kids.find(k => k.cal === cal);
+  const p = personlig();
   const ev = state.events
+    .filter(e => !p || e.cal === p.cal || e.cal === state.fellesCal)
     .map(e => ({ ...e, s: new Date(e.start), e: new Date(e.end) }))
     .filter(e => e.s < til && e.e > fra)
     .sort((a, b) => a.s - b.s);
@@ -117,7 +155,7 @@ function tegnBarn() {
 }
 
 function tegnBunn() {
-  const felles = state.tasks.filter(t => t.owner === 'felles' && !t.days.length);
+  const felles = state.tasks.filter(t => t.owner === 'felles' && (personlig() ? gjelderIdag(t) : !t.days.length));
   const dagens = state.tasks.filter(t => t.days.length && t.days.includes(ukedag(valgt)) && !state.away.includes(t.owner));
   $('felles').innerHTML = felles.map(t => oppgaveKnapp(t)).join('') || '<li class="tomt">Ingen felles oppgaver</li>';
   $('dagens').innerHTML = dagens.map(t => oppgaveKnapp(t, t.owner === 'felles' ? 'Hvem som helst' : barn(t.owner)?.name)).join('') || '<li class="tomt">Ingenting ekstra i dag 😎</li>';
@@ -141,7 +179,7 @@ async function trykk(id) {
 async function lokal(id, by) {
   if (state.done[id]) delete state.done[id]; else state.done[id] = { by };
   tegn();
-  const r = await post('/api/toggle', { date: iso(valgt), taskId: id, by });
+  const r = await post('/api/toggle', { date: iso(valgt), today: iso(new Date()), taskId: id, by });
   state.done = r.done;
   tegn();
 }
@@ -245,6 +283,12 @@ hentVaer();
 setInterval(hentVaer, 15 * 60000);
 
 function flytt(n) { valgt = startOfDay(new Date(valgt.getTime() + n * 864e5 + 36e5 * 3)); hent(); }
+$('visning').onclick = e => {
+  e.preventDefault();
+  familievisning = !familievisning;
+  try { localStorage.setItem('familievisning', familievisning ? '1' : '0'); } catch (err) { /* ok */ }
+  tegn();
+};
 $('loggut').onclick = async e => {
   e.preventDefault();
   await fetch('/api/logout', { method: 'POST' });

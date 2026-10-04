@@ -54,13 +54,32 @@
   .lagre { display: flex; justify-content: center; margin-top: 18px; }
   .lagre a { border: 1px solid var(--linje); border-radius: 999px; padding: 12px 22px; font-weight: 900; background: var(--kort); color: var(--tekst); text-decoration: none; }
   @media (max-width: 900px) { .stat-barn, .to { grid-template-columns: 1fr; } }
+  .navrad { display: flex; align-items: center; justify-content: center; gap: 10px; margin: -6px 0 18px; }
+  .navrad .nav { width: 40px; height: 40px; font-size: 1.4rem; }
+  .navrad .ptittel { min-width: 200px; text-align: center; font-weight: 900; font-size: 1.15rem; }
+  .navrad .ptittel small { display: block; font-size: .8rem; color: var(--dempet); font-weight: 700; }
+  .bosted { display: grid; gap: 10px; }
+  .bo-rad { display: grid; grid-template-columns: 80px 1fr; gap: 10px; align-items: center; }
+  .bo-strek { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--flate); gap: 2px; }
+  .bo-strek i { display: flex; align-items: center; justify-content: center; font-style: normal; font-size: .75rem; font-weight: 900; color: #fff; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .bo-strek .oss { background: var(--farge); }
+  .bo-strek .andre { background: color-mix(in srgb, var(--farge) 35%, var(--flate)); color: var(--tekst); }
+  .bo-strek .plan { opacity: .55; }
+  .bo-tekst { grid-column: 2; font-size: .8rem; color: var(--dempet); font-weight: 700; margin-top: -4px; }
+  .dagliste td.ok { color: var(--ok); }
+  .dagliste td.nei { color: var(--dempet); }
 </style>
 </head>
 <body>
 <h1>📊 Statistikk</h1>
-<p class="under">Hva barna har gjort, og når. Dager der barnet ikke var hjemme telles ikke med.</p>
+<p class="under">Bare for mamma og pappa. Dager barna ikke bor hos oss, telles ikke med i oppgavene.</p>
 <div class="periode" id="periode">
-  <button data-d="7">Siste uke</button><button data-d="28" class="på">4 uker</button><button data-d="84">12 uker</button><button data-d="365">Hele året</button>
+  <button data-p="dag">Dag</button><button data-p="uke">Uke</button><button data-p="mnd" class="på">Måned</button><button data-p="halvaar">Halvår</button><button data-p="aar">År</button>
+</div>
+<div class="navrad">
+  <button class="nav" id="forrige" aria-label="Forrige periode">‹</button>
+  <div class="ptittel" id="periodetittel"></div>
+  <button class="nav" id="neste" aria-label="Neste periode">›</button>
 </div>
 <div id="innhold"><div class="tomt-stor">Henter …</div></div>
 <div class="lagre"><a href="/">← Tilbake til tavla</a></div>
@@ -69,122 +88,195 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const DAG = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
-let data = null, dager = 28, loggFilter = 'alle';
+const MND = ['januar', 'februar', 'mars', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'desember'];
+let data = null, periode = 'mnd', anker = new Date(), loggFilter = 'alle';
+
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dag0 = d => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12);
+const pst = (a, b) => b ? Math.round(100 * a / b) : null;
+const IDAG = iso(new Date());
+
+// Periode: [fra, til, tittel]
+function periodeFor(a) {
+  const y = a.getFullYear(), m = a.getMonth();
+  if (periode === 'dag') return [dag0(a), dag0(a), `${DAG[a.getDay()]} ${a.getDate()}. ${MND[m]} ${y}`];
+  if (periode === 'uke') {
+    const man = dag0(new Date(a.getTime() - ((a.getDay() + 6) % 7) * 864e5)), son = new Date(man.getTime() + 6 * 864e5);
+    const tor = new Date(man.getTime() + 3 * 864e5), jan4 = new Date(tor.getFullYear(), 0, 4);
+    const uke = 1 + Math.round(((tor - jan4) / 864e5 - 3 + (jan4.getDay() + 6) % 7) / 7);
+    return [man, son, `Uke ${uke} · ${man.getDate()}.${man.getMonth() + 1}–${son.getDate()}.${son.getMonth() + 1}`];
+  }
+  if (periode === 'mnd') return [new Date(y, m, 1, 12), new Date(y, m + 1, 0, 12), `${MND[m][0].toUpperCase() + MND[m].slice(1)} ${y}`];
+  if (periode === 'halvaar') { const h = m < 6 ? 0 : 6; return [new Date(y, h, 1, 12), new Date(y, h + 6, 0, 12), `${h ? 'Andre' : 'Første'} halvår ${y}`]; }
+  return [new Date(y, 0, 1, 12), new Date(y, 11, 31, 12), `Året ${y}`];
+}
+
+function flytt(n) {
+  const a = new Date(anker), y = a.getFullYear(), m = a.getMonth();
+  anker = periode === 'dag' ? new Date(a.getTime() + n * 864e5)
+    : periode === 'uke' ? new Date(a.getTime() + n * 7 * 864e5)
+    : periode === 'mnd' ? new Date(y, m + n, 1, 12)
+    : periode === 'halvaar' ? new Date(y, m + 6 * n, 1, 12)
+    : new Date(y + n, 0, 1, 12);
+  hent();
+}
 
 async function hent() {
-  const r = await fetch(`/api/stats?days=${Math.max(dager, 84)}`, { cache: 'no-store' });
+  const [fra, til, tittel] = periodeFor(anker);
+  $('periodetittel').innerHTML = `${esc(tittel)}${iso(til) > IDAG && iso(fra) <= IDAG ? '<small>hittil</small>' : iso(fra) > IDAG ? '<small>fremtid – bare bosted</small>' : ''}`;
+  const r = await fetch(`/api/stats?from=${iso(fra)}&to=${iso(til)}`, { cache: 'no-store' });
   if (r.status === 401) return location.reload();
   data = await r.json();
+  data.fra = fra; data.til = til;
   tegn();
 }
 
-function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
-function pst(a, b) { return b ? Math.round(100 * a / b) : null; }
+const farge = id => data.kids.find(k => k.id === id)?.color || '#8A6BB8';
+const navn = id => data.kids.find(k => k.id === id)?.name || '?';
+const klokke = at => { const t = new Date(at); return isNaN(t) ? '' : `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; };
 
-// Regn ut tall per barn for valgt periode
 function beregn() {
-  const fra = iso(new Date(Date.now() - (dager - 1) * 864e5));
-  const datoer = Object.keys(data.plans).filter(d => d >= fra).sort();
+  const datoer = Object.keys(data.plans).sort();
   const res = {};
-  for (const k of data.kids) res[k.id] = { egne: 0, gjort: 0, felles: 0, hjemme: 0, fulle: 0, rekke: 0, besteRekke: 0, timer: Array(24).fill(0), perDag: {}, perUke: {}, perOppgave: {} };
+  for (const k of data.kids) res[k.id] = { egne: 0, gjort: 0, felles: 0, fulle: 0, rekke: 0, besteRekke: 0, timer: Array(24).fill(0), perDag: {}, perUke: {}, perOppgave: {} };
   const logg = [];
   for (const d of datoer) {
     const p = data.plans[d], done = data.done[d] || {};
     for (const k of data.kids) {
       const r = res[k.id], ids = p.kids[k.id];
-      if (!ids) { r.perDag[d] = null; r.rekke = 0; continue; }
+      if (!ids) { r.perDag[d] = null; continue; }  // ikke hos oss – telles ikke
       const g = ids.filter(id => done[id]).length;
-      r.hjemme++; r.egne += ids.length; r.gjort += g;
+      r.egne += ids.length; r.gjort += g;
       r.perDag[d] = ids.length ? g / ids.length : null;
       if (ids.length && g === ids.length) { r.fulle++; r.rekke++; r.besteRekke = Math.max(r.besteRekke, r.rekke); } else if (ids.length) r.rekke = 0;
-      const dt = new Date(d + 'T12:00:00'), man = new Date(dt.getTime() - ((dt.getDay() + 6) % 7) * 864e5), uke = iso(man);
+      const dt = new Date(d + 'T12:00:00'), uke = iso(new Date(dt.getTime() - ((dt.getDay() + 6) % 7) * 864e5));
       const u = r.perUke[uke] ||= { egne: 0, gjort: 0 }; u.egne += ids.length; u.gjort += g;
-      for (const id of ids) { const o = r.perOppgave[id] ||= { tittel: p.titles[id], n: 0, g: 0 }; o.n++; if (done[id]) o.g++; }
+      for (const id of ids) { const o = r.perOppgave[id] ||= { tittel: p.titles[id], n: 0, g: 0, når: [] }; o.n++; if (done[id]) { o.g++; o.når.push(done[id].at); } }
     }
     for (const [id, v] of Object.entries(done)) {
       const eier = p.owners?.[id] || 'felles', hvem = v.by || (eier !== 'felles' ? eier : null);
       if (eier === 'felles' && hvem && res[hvem]) res[hvem].felles++;
       if (hvem && res[hvem] && v.at && !isNaN(new Date(v.at))) res[hvem].timer[new Date(v.at).getHours()]++;
-      logg.push({ d, at: v.at, hvem, tittel: p.titles[id] || 'Slettet oppgave', felles: eier === 'felles', via: v.via });
+      logg.push({ d, at: v.at, hvem, tittel: p.titles[id] || 'Slettet oppgave', felles: eier === 'felles' });
     }
   }
   logg.sort((a, b) => (b.at || b.d).localeCompare(a.at || a.d));
-  return { res, logg, datoer };
+  return { res, logg };
 }
 
-function farge(id) { return data.kids.find(k => k.id === id)?.color || '#8A6BB8'; }
-function navn(id) { return data.kids.find(k => k.id === id)?.name || '?'; }
+// Bosted: dager hos oss / hos Erik / hos Linda, delt i hittil og planlagt
+function bosted() {
+  const ut = {};
+  for (const k of data.kids) ut[k.id] = { oss: 0, andre: 0, ossPlan: 0, andrePlan: 0, ukjent: 0 };
+  for (const [d, p] of Object.entries(data.presence)) {
+    for (const k of data.kids) {
+      const u = ut[k.id];
+      if (!p) { u.ukjent++; continue; }
+      const fremtid = d > IDAG, hjemme = !p[k.id];
+      u[(hjemme ? 'oss' : 'andre') + (fremtid ? 'Plan' : '')]++;
+    }
+  }
+  return ut;
+}
+
+function bostedHtml() {
+  const b = bosted();
+  return `<section class="kort">
+    <div class="kort-hode"><h2>🏠 Hvor bor barna</h2><span class="liten">dager i perioden</span></div>
+    <div class="bosted">${data.kids.map(k => {
+      const u = b[k.id], tot = u.oss + u.andre + u.ossPlan + u.andrePlan || 1, andreNavn = data.otherHome[k.id];
+      const del = (n, kl, tekst) => n ? `<i class="${kl}" style="flex:${n}" title="${tekst}: ${n} dager">${n}</i>` : '';
+      return `<div class="bo-rad" style="--farge:${k.color}"><span class="chip">${esc(k.name)}</span>
+        <div class="bo-strek">${del(u.oss, 'oss', 'Hos oss')}${del(u.ossPlan, 'oss plan', 'Hos oss (planlagt)')}${del(u.andre, 'andre', andreNavn)}${del(u.andrePlan, 'andre plan', andreNavn + ' (planlagt)')}</div>
+        <div class="bo-tekst">Hos oss ${u.oss + u.ossPlan} dager (${pst(u.oss + u.ossPlan, tot)} %) · ${esc(andreNavn)} ${u.andre + u.andrePlan} dager${u.ossPlan + u.andrePlan ? ` · ${u.ossPlan + u.andrePlan} av dem er planlagt frem i tid` : ''}${u.ukjent ? ` · ${u.ukjent} dager uten kalenderdata` : ''}</div></div>`;
+    }).join('')}</div></section>`;
+}
+
+function dagHtml() {
+  const d = iso(data.fra), p = data.plans[d], done = data.done[d] || {};
+  if (!p) return '';
+  return `<div class="stat-barn">${data.kids.map(k => {
+    const ids = p.kids[k.id];
+    return `<section class="kort barnekort" style="--farge:${k.color}"><h2>${esc(k.name)}</h2>
+      ${!ids ? `<div class="tomt-stor">${esc(data.otherHome[k.id])}</div>` : `
+      <table class="dagliste">${ids.map(id => `<tr><td>${esc(p.titles[id])}</td><td class="n ${done[id] ? 'ok' : 'nei'}">${done[id] ? '✓ ' + klokke(done[id].at) : '–'}</td></tr>`).join('')}
+      ${Object.entries(done).filter(([id, v]) => p.owners?.[id] === 'felles' && v.by === k.id).map(([id, v]) => `<tr><td>${esc(p.titles[id])} <span class="liten">(felles)</span></td><td class="n ok">✓ ${klokke(v.at)}</td></tr>`).join('')}
+      </table>`}</section>`;
+  }).join('')}</div>`;
+}
 
 function tegn() {
-  if (!Object.keys(data.plans).length) {
-    $('innhold').innerHTML = '<div class="kort tomt-stor">Ingen data ennå. Statistikken fylles opp fra og med i dag. 🌱</div>';
-    return;
-  }
+  const harData = Object.keys(data.plans).length;
   const { res, logg } = beregn();
-  const sisteDager = [...Array(dager)].map((_, i) => iso(new Date(Date.now() - (dager - 1 - i) * 864e5)));
+  const alleDager = [];
+  for (let t = data.fra.getTime(); t <= data.til.getTime(); t += 864e5) alleDager.push(iso(new Date(t)));
 
-  const kort = data.kids.map(k => {
+  let kort = '';
+  if (periode === 'dag') kort = dagHtml();
+  else if (harData) kort = `<div class="stat-barn">${data.kids.map(k => {
     const r = res[k.id], p = pst(r.gjort, r.egne);
     const uker = Object.entries(r.perUke).sort(([a], [b]) => a.localeCompare(b));
     const maksT = Math.max(1, ...r.timer);
     const oppg = Object.values(r.perOppgave).sort((a, b) => a.g / a.n - b.g / b.n);
     return `<section class="kort barnekort" style="--farge:${k.color}">
       <h2>${esc(k.name)}</h2>
-      ${r.hjemme ? `
+      ${r.egne ? `
       <div class="tall">
         <div><b>${p ?? '–'}%</b><span>av egne gjort</span></div>
         <div><b>${r.felles}</b><span>felles tatt</span></div>
         <div><b>${r.besteRekke}</b><span>dager på rad<br>med alt gjort</span></div>
       </div>
       <div class="seksjon-tittel">Dag for dag</div>
-      <div class="dager">${'<div></div>'.repeat((new Date(sisteDager[0] + 'T12:00:00').getDay() + 6) % 7)}${sisteDager.map(d => {
-        const v = r.perDag[d];
-        if (v === undefined) return `<div class="dag" title="${d}: ingen data"></div>`;
-        if (v === null) return `<div class="dag borte" title="${d}: ikke hjemme"></div>`;
+      <div class="dager">${'<div></div>'.repeat((new Date(alleDager[0] + 'T12:00:00').getDay() + 6) % 7)}${alleDager.map(d => {
+        const v = r.perDag[d], bo = data.presence[d];
+        if (v === undefined) return bo && bo[k.id] ? `<div class="dag borte" title="${d}: ${esc(bo[k.id])}"></div>` : `<div class="dag" title="${d}: ingen data"></div>`;
+        if (v === null) return `<div class="dag borte" title="${d}: ${esc(data.otherHome[k.id])}"></div>`;
         return `<div class="dag" style="background:color-mix(in srgb, ${k.color} ${Math.round(15 + 85 * v)}%, var(--flate))" title="${d}: ${Math.round(v * 100)} % gjort"></div>`;
       }).join('')}</div>
-      <div class="forklaring">0 %<span class="dag" style="background:color-mix(in srgb, ${k.color} 15%, var(--flate))"></span><span class="dag" style="background:color-mix(in srgb, ${k.color} 57%, var(--flate))"></span><span class="dag" style="background:${k.color}"></span>100 % · <span class="dag borte"></span> ikke hjemme</div>
+      <div class="forklaring">0 %<span class="dag" style="background:color-mix(in srgb, ${k.color} 15%, var(--flate))"></span><span class="dag" style="background:color-mix(in srgb, ${k.color} 57%, var(--flate))"></span><span class="dag" style="background:${k.color}"></span>100 % · <span class="dag borte"></span> ${esc(data.otherHome[k.id].toLowerCase())}</div>
       ${uker.length > 1 ? `<div class="seksjon-tittel">Uke for uke</div>
-      <div class="uker">${uker.map(([u, x]) => { const v = pst(x.gjort, x.egne); return `<div class="uke ${v === null ? 'tom' : ''}" title="Uke fra ${u}: ${v ?? '–'} % (${x.gjort} av ${x.egne})"><i style="height:${v ?? 0}%"></i></div>`; }).join('')}</div>
+      <div class="uker">${uker.map(([u, x]) => { const v = pst(x.gjort, x.egne); return `<div class="uke" title="Uke fra ${u}: ${v ?? '–'} % (${x.gjort} av ${x.egne})"><i style="height:${v ?? 0}%"></i></div>`; }).join('')}</div>
       <div class="akse"><span>${uker[0][0].slice(5)}</span><span>${uker.at(-1)[0].slice(5)}</span></div>` : ''}
       <div class="seksjon-tittel">Når på døgnet</div>
       <div class="timer">${r.timer.map((n, h) => `<i style="height:${100 * n / maksT}%" title="kl. ${h}: ${n} oppgaver"></i>`).join('')}</div>
       <div class="akse"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
       <div class="seksjon-tittel">Oppgavene</div>
       <table>${oppg.map(o => { const v = pst(o.g, o.n); return `<tr><td>${esc(o.tittel)}</td><td style="width:30%"><div class="strek"><i style="width:${v}%"></i></div></td><td class="n">${o.g}/${o.n}</td></tr>`; }).join('')}</table>
-      ` : '<div class="tomt-stor">Ikke hjemme i perioden</div>'}
+      ` : `<div class="tomt-stor">Ingen oppgavedager i perioden</div>`}
     </section>`;
-  }).join('');
+  }).join('')}</div>`;
+  if (!harData && periode !== 'dag') kort = `<div class="kort tomt-stor" style="margin-bottom:16px">Ingen oppgavedata i denne perioden. Statistikken teller fra 4. oktober 2026.</div>`;
 
-  const viste = logg.filter(l => loggFilter === 'alle' || l.hvem === loggFilter).slice(0, 60);
+  const viste = logg.filter(l => loggFilter === 'alle' || l.hvem === loggFilter).slice(0, 80);
   const loggHtml = `<section class="kort">
-    <div class="kort-hode"><h2>🕑 Siste avkrysninger</h2></div>
-    <div class="filter">${['alle', ...data.kids.map(k => k.id)].map(id => `<button data-logg="${id}" class="${loggFilter === id ? 'på' : ''}" style="${id !== 'alle' ? `--farge:${farge(id)}` : ''}">${id === 'alle' ? 'Alle' : esc(navn(id))}</button>`).join('')}</div>
+    <div class="kort-hode"><h2>🕑 Avkrysninger</h2></div>
+    <div class="filter">${['alle', ...data.kids.map(k => k.id)].map(id => `<button data-logg="${id}" class="${loggFilter === id ? 'på' : ''}" style="--farge:${id === 'alle' ? 'var(--dempet)' : farge(id)}">${id === 'alle' ? 'Alle' : esc(navn(id))}</button>`).join('')}</div>
     <table><tr><th>Når</th><th>Hvem</th><th>Oppgave</th></tr>
     ${viste.map(l => {
       const t = l.at && !isNaN(new Date(l.at)) ? new Date(l.at) : null;
-      const når = t ? `${DAG[t.getDay()]} ${t.getDate()}.${t.getMonth() + 1} kl. ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : l.d;
-      return `<tr><td class="n" style="text-align:left">${når}</td><td>${l.hvem ? `<span class="chip" style="--farge:${farge(l.hvem)}">${esc(navn(l.hvem))}</span>` : '–'}</td><td>${esc(l.tittel)}${l.felles ? ' <span class="liten">(felles)</span>' : ''}${l.via === 'påminnelser' ? ' <span class="liten">📱</span>' : ''}</td></tr>`;
+      const når = t ? `${DAG[t.getDay()]} ${t.getDate()}.${t.getMonth() + 1} kl. ${klokke(l.at)}` : l.d;
+      return `<tr><td class="n" style="text-align:left">${når}</td><td>${l.hvem ? `<span class="chip" style="--farge:${farge(l.hvem)}">${esc(navn(l.hvem))}</span>` : '–'}</td><td>${esc(l.tittel)}${l.felles ? ' <span class="liten">(felles)</span>' : ''}</td></tr>`;
     }).join('') || '<tr><td colspan="3" class="tomt">Ingen avkrysninger i perioden</td></tr>'}
     </table></section>`;
 
-  const fellesTatt = data.kids.map(k => ({ k, n: res[k.id].felles }));
-  const maksF = Math.max(1, ...fellesTatt.map(x => x.n));
+  const fellesTatt = data.kids.map(k => ({ k, n: res[k.id].felles })), maksF = Math.max(1, ...fellesTatt.map(x => x.n));
   const fellesHtml = `<section class="kort">
     <div class="kort-hode"><h2>🤝 Hvem tar felles-oppgavene?</h2></div>
     <table>${fellesTatt.map(({ k, n }) => `<tr style="--farge:${k.color}"><td style="width:90px"><span class="chip">${esc(k.name)}</span></td><td><div class="strek" style="height:12px"><i style="width:${100 * n / maksF}%"></i></div></td><td class="n">${n}</td></tr>`).join('')}</table>
-    <p class="hint" style="margin-top:10px">📱 = huket av i Påminnelser på mobil/iPad. Hold over rutene og søylene for detaljer.</p>
+    <p class="hint" style="margin-top:10px">Hold over rutene og søylene for detaljer.</p>
   </section>`;
 
-  $('innhold').innerHTML = `<div class="stat-barn">${kort}</div><div class="to">${fellesHtml}${loggHtml}</div>`;
+  $('innhold').innerHTML = `${kort}<div class="to" style="margin-bottom:16px">${bostedHtml()}${fellesHtml}</div>${loggHtml}`;
 }
 
 $('periode').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
-  dager = +b.dataset.d;
+  periode = b.dataset.p;
   document.querySelectorAll('#periode button').forEach(x => x.classList.toggle('på', x === b));
   hent();
 };
+$('forrige').onclick = () => flytt(-1);
+$('neste').onclick = () => flytt(1);
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-logg]');
   if (b) { loggFilter = b.dataset.logg; tegn(); }

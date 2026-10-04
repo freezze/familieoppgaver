@@ -10,9 +10,10 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
+<div class="hilsen" id="hilsen" hidden></div>
 <header class="topp">
   <button class="nav" id="forrige" aria-label="Forrige dag">‹</button>
   <div class="dato">
@@ -24,6 +25,13 @@
 </header>
 
 <div class="bursdag" id="bursdag" hidden></div>
+
+<section class="kort min" id="min" hidden>
+  <div class="kort-hode"><h2 id="min-tittel">Dine oppgaver</h2><span class="liten" id="min-teller"></span></div>
+  <div class="fremdrift"><div id="min-frem"></div></div>
+  <ul class="liste" id="min-liste"></ul>
+  <div class="min-ferdig" id="min-ferdig" hidden></div>
+</section>
 
 <div class="toppkort">
 <section class="kort vaer" aria-labelledby="vaer-tittel">
@@ -47,6 +55,8 @@
 </section>
 </div>
 
+
+
 <main class="barn" id="barn"></main>
 
 <section class="bunn">
@@ -55,14 +65,14 @@
     <p class="hint">Trykk på oppgaven og velg hvem som tok den.</p>
     <ul class="liste" id="felles"></ul>
   </div>
-  <div class="kort halv">
+  <div class="kort halv" id="dagens-kort">
     <div class="kort-hode"><h2>📌 Bare i dag – <span id="dagnavn"></span></h2><span class="liten" id="dag-teller"></span></div>
     <p class="hint">Oppgaver som hører til akkurat denne dagen.</p>
     <ul class="liste" id="dagens"></ul>
   </div>
 </section>
 
-<footer class="fot"><span id="meg"></span> · <a href="#" id="loggut">Bytt bruker</a> · <a href="/admin">Endre oppgaver</a> · <a href="/statistikk">Statistikk</a></footer>
+<footer class="fot"><span id="meg"></span> · <a href="#" id="visning" hidden></a> <a href="#" id="loggut">Bytt bruker</a><span id="foreldrelenker" hidden> · <a href="/admin">Endre oppgaver</a> · <a href="/statistikk">Statistikk</a></span></footer>
 
 <div class="velger" id="velger" hidden>
   <div class="velger-boks" role="dialog" aria-modal="true" aria-labelledby="velger-tittel">
@@ -73,6 +83,6 @@
   </div>
 </div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

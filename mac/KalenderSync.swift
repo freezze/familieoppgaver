@@ -68,8 +68,28 @@ if access(.event) {
         out.append(["cal": e.calendar.title, "title": e.title ?? "", "start": iso.string(from: e.startDate),
                     "end": iso.string(from: e.endDate), "allDay": e.isAllDay, "location": e.location ?? ""])
     }
-    let r = http("POST", "/api/calendar", ["events": out, "generated": iso.string(from: Date())])
-    log("kalender: \(out.count) hendelser \(r == nil ? "IKKE sendt" : "sendt")")
+    // Hvem som bor hos oss: barneuker/samvær over lang tid (til statistikken og fravær).
+    // Fra «Ekstra» sendes bare samværshendelser – ikke resten av den kalenderen.
+    let pFrom = cal.startOfDay(for: Date()).addingTimeInterval(-86400 * 400)
+    let pTo = cal.startOfDay(for: Date()).addingTimeInterval(86400 * 400)
+    let pCals = store.calendars(for: .event).filter { ["Fellesplan", "Ekstra", "Bastian", "Cadence", "William"].contains($0.title) }
+    let words = ["barneuke", "samvær", "pappa", "erik", "linda"]
+    var presence: [[String: Any]] = []
+    var chunk = pFrom
+    while chunk < pTo {  // EventKit liker ikke for lange søk – hent ett år om gangen
+        let next = min(chunk.addingTimeInterval(86400 * 365), pTo)
+        for e in store.events(matching: store.predicateForEvents(withStart: chunk, end: next, calendars: pCals)) {
+            let t = (e.title ?? "").lowercased()
+            if words.contains(where: { t.contains($0) }) && e.startDate >= chunk {
+                presence.append(["cal": e.calendar.title, "title": e.title ?? "", "start": iso.string(from: e.startDate),
+                                 "end": iso.string(from: e.endDate), "allDay": e.isAllDay])
+            }
+        }
+        chunk = next
+    }
+    let r = http("POST", "/api/calendar", ["events": out, "generated": iso.string(from: Date()), "presence": presence,
+                                           "presenceFrom": dayFmt.string(from: pFrom), "presenceTo": dayFmt.string(from: pTo)])
+    log("kalender: \(out.count) hendelser, \(presence.count) bosted \(r == nil ? "IKKE sendt" : "sendt")")
 } else {
     log("ingen kalendertilgang")
 }

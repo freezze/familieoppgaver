@@ -38,14 +38,20 @@ LAT, LON = os.environ.get("WEATHER_LAT", "59.2096"), os.environ.get("WEATHER_LON
 WEATHER = {"data": None, "fetched": 0, "expires": 0, "last_modified": None}
 
 KIDS = [
-    {"id": "bastian", "name": "Bastian", "color": "#3E9A5B", "cal": "Bastian", "birthday": "10-07", "born": 2015},
-    {"id": "cadence", "name": "Cadence", "color": "#3B78C2", "cal": "Cadence", "birthday": "01-17", "born": 2014},
-    {"id": "william", "name": "William", "color": "#E07B24", "cal": "William", "birthday": "12-08", "born": 2009},
+    {"id": "bastian", "name": "Bastian", "color": "#3E9A5B", "cal": "Bastian", "birthday": "10-07", "born": 2015,
+     "bg": "https://images.unsplash.com/photo-1639161775388-db5b5d5cc9eb?w=1800&q=70&auto=format", "tema": "🎾"},
+    {"id": "cadence", "name": "Cadence", "color": "#3B78C2", "cal": "Cadence", "birthday": "01-17", "born": 2014,
+     "bg": "https://images.unsplash.com/photo-1564774923241-9bfc1c2911d6?w=1800&q=70&auto=format", "tema": "🐴"},
+    {"id": "william", "name": "William", "color": "#E07B24", "cal": "William", "birthday": "12-08", "born": 2009,
+     "bg": "https://images.unsplash.com/photo-1528722828814-77b9b83aafb2?w=1800&q=70&auto=format", "tema": "🚀"},
 ]
 FELLES_CAL = "Fellesplan"
-# Bor hos oss bare i barneuker: heldagshendelse «Barneuke» i Fellesplan.
-# Heldagshendelser med «pappa» i navnet (f.eks. «C+W ferie med pappa») betyr også borte.
+# Hvor barna bor (fra kalenderen, synket fra Macen):
+# - Cadence og William bor hos oss i «Barneuke» (heldag i Fellesplan). Ellers, eller ved
+#   hendelser med «pappa»/«Erik» i navnet, er de hos Erik.
+# - Bastian bor hos oss alltid, unntatt når en «Samvær»-hendelse dekker kl. 18 den dagen – da er han hos Linda.
 PART_TIME = {"cadence", "william"}
+OTHER_HOME = {"cadence": "Hos Erik", "william": "Hos Erik", "bastian": "Hos Linda"}
 KEEP_DAYS = 400
 
 # Dager: 0 = mandag ... 6 = søndag. Tom liste = hver dag.
@@ -117,27 +123,56 @@ def covers(e, day):
     return s <= day <= end
 
 
-def auto_away(day):
-    """Hvem som er borte ifølge Fellesplan. Utenfor perioden kalenderen dekker: ingen."""
+def presence_source():
     cal = load("calendar.json", {})
+    if cal.get("presence") is not None:
+        return cal["presence"], cal.get("presenceFrom"), cal.get("presenceTo")
     gen = cal.get("generated")
     if not gen:
-        return set(), {}
+        return [], None, None
     g = Date.fromisoformat(gen[:10])
-    if not (g - timedelta(days=1) <= Date.fromisoformat(day) <= g + timedelta(days=7)):
-        return set(), {}
-    fe = [e for e in cal.get("events", []) if e.get("cal") == FELLES_CAL and e.get("allDay") and covers(e, day)]
-    away, why = set(), {}
-    if not any("barneuke" in e["title"].lower() for e in fe):
-        for k in PART_TIME:
-            away.add(k)
-            why[k] = "Ikke barneuke"
-    for e in fe:
-        if "pappa" in e["title"].lower():
+    return ([e for e in cal.get("events", []) if e.get("cal") == FELLES_CAL],
+            (g - timedelta(days=1)).isoformat(), (g + timedelta(days=7)).isoformat())
+
+
+def away_on(day, events):
+    """{barn: årsak} for barn som ikke er hos oss denne dagen, ut fra kalenderhendelser."""
+    away, barneuke = {}, False
+    for e in events:
+        t = e["title"].lower()
+        if e.get("allDay"):
+            if not covers(e, day):
+                continue
+            if "barneuke" in t:
+                barneuke = True
+                continue
+        else:
+            # Tidsbestemt (f.eks. samvær fre 14:00 – ons 08:30): borte hvis kl. 18 er dekket
+            try:
+                start, end = datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"])
+                kl18 = datetime.fromisoformat(f"{day}T18:00:00").replace(tzinfo=start.tzinfo)
+            except ValueError:
+                continue
+            if not (start <= kl18 < end):
+                continue
+        if "erik" in t or "pappa" in t:
             for k in PART_TIME:
-                away.add(k)
-                why[k] = e["title"]
-    return away, why
+                away[k] = OTHER_HOME[k]
+        elif "samvær" in t or "linda" in t:
+            away["bastian"] = OTHER_HOME["bastian"]
+    if not barneuke:
+        for k in PART_TIME:
+            away[k] = OTHER_HOME[k]
+    return away
+
+
+def auto_away(day):
+    """Hvem som er borte ifølge kalenderen. Utenfor perioden kalenderen dekker: ingen."""
+    events, fra, til = presence_source()
+    if not fra or not (fra <= day <= til):
+        return set(), {}
+    a = away_on(day, events)
+    return set(a), a
 
 
 def away_for(day):
@@ -147,7 +182,7 @@ def away_for(day):
     if isinstance(manual, list):
         manual = {k: True for k in manual}
     away = [k["id"] for k in KIDS if manual.get(k["id"], k["id"] in auto)]
-    reasons = {k: ("Satt manuelt" if k in manual else why.get(k, "")) for k in away}
+    reasons = {k: (OTHER_HOME.get(k, "Ikke hjemme") + " (satt manuelt)" if k in manual else why.get(k, "")) for k in away}
     return away, reasons, manual, auto
 
 
@@ -349,12 +384,33 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/stats":
             if not self.is_admin():
                 return self.send_json({"error": "kode"}, 401)
-            days = min(int((q.get("days") or ["84"])[0]), KEEP_DAYS)
+            fra, til = (q.get("from") or [""])[0][:10], (q.get("to") or [""])[0][:10]
+            try:
+                d0, d1 = Date.fromisoformat(fra), Date.fromisoformat(til)
+            except ValueError:
+                return self.send_json({"error": "ugyldig periode"}, 400)
             with LOCK:
                 plans, done = load("plans.json", {}), load("done.json", {})
-            keys = sorted(plans)[-days:]
-            return self.send_json({"kids": KIDS, "plans": {d: plans[d] for d in keys},
-                                   "done": {d: done.get(d, {}) for d in keys}})
+                events, pf, pt = presence_source()
+                allaway = load("away.json", {})
+            # Hvor barna bodde/skal bo hver dag i perioden (null = ukjent, utenfor kalenderdata)
+            presence, d = {}, d0
+            while d <= d1 and len(presence) < 400:
+                ds = d.isoformat()
+                if ds in plans:
+                    presence[ds] = {k["id"]: (OTHER_HOME[k["id"]] if k["id"] in plans[ds]["away"] else None) for k in KIDS}
+                elif pf and pf <= ds <= pt:
+                    a = away_on(ds, events)
+                    manual = allaway.get(ds, {})
+                    if isinstance(manual, list):
+                        manual = {k: True for k in manual}
+                    presence[ds] = {k["id"]: (OTHER_HOME[k["id"]] if manual.get(k["id"], k["id"] in a) else None) for k in KIDS}
+                else:
+                    presence[ds] = None
+                d += timedelta(days=1)
+            return self.send_json({"kids": KIDS, "otherHome": OTHER_HOME, "presence": presence,
+                                   "plans": {k: v for k, v in plans.items() if fra <= k <= til},
+                                   "done": {k: v for k, v in done.items() if fra <= k <= til}})
         if u.path == "/api/tasks":
             with LOCK:
                 codes = load("codes.json", {})
@@ -456,7 +512,8 @@ class Handler(BaseHTTPRequestHandler):
                     del day[tid]
                 else:
                     day[tid] = {"by": by, "at": now_iso(), "via": "skjerm"}
-                record_plan(date)
+                if date == str(body.get("today", ""))[:10]:
+                    record_plan(date)
                 for k in sorted(done)[:-KEEP_DAYS]:
                     del done[k]
                 save("done.json", done)
@@ -484,7 +541,9 @@ class Handler(BaseHTTPRequestHandler):
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
                 return self.send_json({"error": "nei"}, 403)
             with LOCK:
-                save("calendar.json", {"events": body.get("events", []), "generated": body.get("generated")})
+                save("calendar.json", {"events": body.get("events", []), "generated": body.get("generated"),
+                                       "presence": body.get("presence"), "presenceFrom": body.get("presenceFrom"),
+                                       "presenceTo": body.get("presenceTo")})
             return self.send_json({"ok": True, "count": len(body.get("events", []))})
 
         self.send_json({"error": "ikke funnet"}, 404)

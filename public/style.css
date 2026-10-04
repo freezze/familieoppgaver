@@ -38,7 +38,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ukedag { font-size: 2.2rem; font-weight: 900; line-height: 1.05; }
 .datotekst { color: var(--dempet); font-weight: 700; }
 .nav { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--linje); background: var(--kort); font-size: 1.7rem; line-height: 1; box-shadow: var(--skygge); }
-.idag { flex-basis: 100%; max-width: 160px; border: 0; background: var(--tekst); color: var(--bg); border-radius: 999px; padding: 8px 16px; font-weight: 800; }
+.idag { order: 3; flex: 0 0 100%; border: 0; background: none; color: inherit; text-decoration: underline; text-underline-offset: 3px; padding: 2px; font-weight: 800; }
 
 .bursdag { text-align: center; font-weight: 900; font-size: 1.25rem; background: linear-gradient(90deg, #FFE6A8, #FFD1DC, #CFE8FF); color: #2B211C; border-radius: var(--r); padding: 14px; margin-bottom: 16px; }
 
@@ -155,3 +155,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (max-width: 900px) {
   .toppkort { grid-template-columns: 1fr; grid-template-areas: "vaer" "kal"; }
 }
+
+/* Barnets egen side – tema-bakgrunn */
+body.personlig {
+  background: linear-gradient(rgba(15, 10, 8, .35), rgba(15, 10, 8, .55)), var(--bilde) center / cover fixed, #1A1614;
+}
+body.personlig .topp, body.personlig .hilsen { color: #fff; text-shadow: 0 2px 12px rgba(0, 0, 0, .55); }
+body.personlig .datotekst { color: rgba(255, 255, 255, .85); }
+body.personlig .fot, body.personlig .fot a { color: rgba(255, 255, 255, .85); text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+body.personlig .kort { background: color-mix(in srgb, var(--kort) 92%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.hilsen { text-align: center; font-size: 2rem; font-weight: 900; margin: 6px 0 -6px; }
+.min { border-top: 6px solid var(--farge); margin-bottom: 16px; }
+.min h2 { font-size: 1.35rem; color: var(--farge); }
+.min .oppgave { min-height: 64px; font-size: 1.1rem; }
+.min-ferdig { text-align: center; font-weight: 900; font-size: 1.2rem; color: var(--farge); padding: 14px 0 4px; }
+@media (max-width: 480px) { .hilsen { font-size: 1.6rem; } }
