@@ -21,15 +21,16 @@ SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
 PUBLIC = Path(__file__).parent / "public"
 LOCK = threading.Lock()
 
-# Tilgang: fra godkjente IP-er slipper man inn direkte, ellers må man taste koden.
-ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+# Tilgang: hvert barn har sin egen kode (startverdier i KID_CODES="bastian:1234,..."),
+# foreldrekoden settes i ADMIN_CODE.
+# Enheten husker hvem man er i et år (cookie).
 ADMIN_CODE = os.environ.get("ADMIN_CODE", "")  # foreldrekode – kreves ALLTID for å endre oppgaver
 ADMIN_COOKIE = "foreldre"
-ALLOWED_IPS = [x.strip() for x in os.environ.get("ALLOWED_IPS", "").split(",") if x.strip()]
 SECRET = (os.environ.get("COOKIE_SECRET") or SYNC_TOKEN or "lokal").encode()
 COOKIE = "tilgang"
-OPEN_PATHS = {"/health", "/api/calendar", "/api/sync", "/api/sync/set","/api/login", "/api/whoami", "/style.css", "/icon.svg", "/login.html"}
-FAILS = {}  # ip -> (antall, første forsøk)
+OPEN_PATHS = {"/health", "/api/calendar", "/api/sync", "/api/sync/set", "/api/login", "/api/login-info", "/api/logout",
+              "/api/whoami", "/style.css", "/icon.svg", "/login.html"}
+FAILS = {}  # hvem -> (antall, første forsøk)
 
 # Vær fra Yr / MET Norway (Skien)
 LAT, LON = os.environ.get("WEATHER_LAT", "59.2096"), os.environ.get("WEATHER_LON", "9.6090")
@@ -104,9 +105,35 @@ def tasks():
     return t
 
 
-def access_token(admin=False):
-    code = ("admin:" + ADMIN_CODE) if admin else ("kode:" + ACCESS_CODE)
-    return hmac.new(SECRET, code.encode(), hashlib.sha256).hexdigest()[:32]
+def sign(text):
+    return hmac.new(SECRET, text.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def hash_code(code, salt):
+    return hashlib.pbkdf2_hmac("sha256", code.encode(), salt.encode(), 100_000).hex()
+
+
+def set_code(kid, code):
+    codes = load("codes.json", {})
+    salt = uuid.uuid4().hex
+    codes[kid] = {"salt": salt, "hash": hash_code(code, salt)}
+    save("codes.json", codes)
+
+
+def seed_codes():
+    """Legger inn startkoder fra KID_CODES for barn som ikke har kode ennå."""
+    codes = load("codes.json", {})
+    for part in os.environ.get("KID_CODES", "").split(","):
+        kid, _, code = part.strip().partition(":")
+        if kid and code and kid not in codes:
+            set_code(kid, code.strip())
+            codes = load("codes.json", {})
+
+
+def kid_token(kid):
+    """Cookie-verdi for et barn. Blir ugyldig når koden nullstilles eller byttes."""
+    c = load("codes.json", {}).get(kid)
+    return f"{kid}.{sign(kid + ':' + c['hash'])}" if c else None
 
 
 def weather():
@@ -151,24 +178,27 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def client_ip(self):
-        # Traefik legger til klientens adresse i X-Forwarded-For; første ledd er den opprinnelige klienten.
-        xff = self.headers.get("X-Forwarded-For", "")
-        return (xff.split(",")[0].strip() if xff else "") or self.headers.get("X-Real-Ip") or self.client_address[0]
-
-    def ip_allowed(self):
-        ip = self.client_ip()
-        return any(ip == a or (a.endswith(".") and ip.startswith(a)) for a in ALLOWED_IPS)
-
-    def cookie_ok(self, name, admin):
-        c = SimpleCookie(self.headers.get("Cookie", ""))
-        return name in c and hmac.compare_digest(c[name].value, access_token(admin))
+    def cookies(self):
+        return SimpleCookie(self.headers.get("Cookie", ""))
 
     def is_admin(self):
-        return bool(ADMIN_CODE) and self.cookie_ok(ADMIN_COOKIE, True)
+        c = self.cookies()
+        return bool(ADMIN_CODE) and ADMIN_COOKIE in c and hmac.compare_digest(c[ADMIN_COOKIE].value, sign("admin:" + ADMIN_CODE))
+
+    def me(self):
+        """Hvilket barn denne enheten tilhører, «foreldre», eller None."""
+        if self.is_admin():
+            return "foreldre"
+        c = self.cookies()
+        if COOKIE in c:
+            kid = c[COOKIE].value.split(".")[0]
+            tok = kid_token(kid)
+            if tok and hmac.compare_digest(c[COOKIE].value, tok):
+                return kid
+        return None
 
     def has_access(self):
-        return not ACCESS_CODE or self.ip_allowed() or self.cookie_ok(COOKIE, False) or self.is_admin()
+        return not ADMIN_CODE or self.me() is not None
 
     def guard(self, p, method="GET"):
         """Returnerer True hvis forespørselen er stoppet (ingen tilgang)."""
@@ -215,9 +245,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.guard(u.path):
             return
         if u.path == "/api/whoami":
-            return self.send_json({"ip": self.client_ip(), "godkjentIp": self.ip_allowed(), "tilgang": self.has_access(),
-                                   "foreldre": self.is_admin(),
-                                   "headers": {k: v for k, v in self.headers.items() if k.lower() not in ("cookie",)}})
+            return self.send_json({"me": self.me()})
+        if u.path == "/api/login-info":
+            codes = load("codes.json", {})
+            return self.send_json({"kids": [dict(k, hasCode=k["id"] in codes) for k in KIDS]})
         if u.path == "/api/sync":
             # Brukes av Macen for å speile dagens oppgaver i Påminnelser
             if not SYNC_TOKEN or self.headers.get("X-Sync-Token") != SYNC_TOKEN:
@@ -239,10 +270,12 @@ class Handler(BaseHTTPRequestHandler):
                 "kids": KIDS, "fellesCal": FELLES_CAL, "tasks": t,
                 "done": done.get(date, {}), "away": away.get(date, []),
                 "events": cal.get("events", []), "calendarUpdated": cal.get("generated"),
+                "me": self.me(),
             })
         if u.path == "/api/tasks":
             with LOCK:
-                return self.send_json({"kids": KIDS, "tasks": tasks()})
+                codes = load("codes.json", {})
+                return self.send_json({"kids": [dict(k, hasCode=k["id"] in codes) for k in KIDS], "tasks": tasks()})
         if u.path == "/health":
             return self.send_json({"ok": True})
         name = "admin.html" if u.path in ("/admin", "/admin/") else (u.path.lstrip("/") or "index.html")
@@ -259,24 +292,30 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "ugyldig"}, 400)
 
         if u.path == "/api/login":
-            ip, now = self.client_ip(), time.time()
-            n, first = FAILS.get(ip, (0, now))
+            who, code = str(body.get("who", "")), str(body.get("code", "")).strip()
+            kids = {k["id"] for k in KIDS}
+            if who != "foreldre" and who not in kids:
+                return self.send_json({"error": "Velg hvem du er"}, 400)
+            now = time.time()
+            n, first = FAILS.get(who, (0, now))
             if now - first > 900:
                 n, first = 0, now
             if n >= 10:
-                return self.send_json({"error": "For mange forsøk. Vent litt og prøv igjen."}, 429)
-            code = str(body.get("code", "")).strip()
-            admin = bool(body.get("admin"))
-            riktig = ADMIN_CODE if admin else ACCESS_CODE
-            # Foreldrekoden slipper også inn på tavla
-            if not admin and ADMIN_CODE and hmac.compare_digest(code, ADMIN_CODE):
-                admin = True
-                riktig = ADMIN_CODE
-            if not riktig or not hmac.compare_digest(code, riktig):
-                FAILS[ip] = (n + 1, first)
+                return self.send_json({"error": "For mange feil. Vent et kvarter og prøv igjen."}, 429)
+            with LOCK:
+                codes = load("codes.json", {})
+                if who == "foreldre":
+                    ok = bool(ADMIN_CODE) and hmac.compare_digest(code, ADMIN_CODE)
+                elif who not in codes:
+                    return self.send_json({"error": "Du har ingen kode ennå – spør mamma eller pappa"}, 403)
+                else:
+                    c = codes[who]
+                    ok = hmac.compare_digest(hash_code(code, c["salt"]), c["hash"])
+            if not ok:
+                FAILS[who] = (n + 1, first)
                 return self.send_json({"error": "Feil kode"}, 403)
-            FAILS.pop(ip, None)
-            name, tok = (ADMIN_COOKIE, access_token(True)) if admin else (COOKIE, access_token())
+            FAILS.pop(who, None)
+            name, tok = (ADMIN_COOKIE, sign("admin:" + ADMIN_CODE)) if who == "foreldre" else (COOKIE, kid_token(who))
             payload = json.dumps({"ok": True}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -298,6 +337,25 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     day.pop(tid, None)
                 save("done.json", done)
+            return self.send_json({"ok": True})
+
+        if u.path == "/api/logout":
+            self.send_response(200)
+            for name in (COOKIE, ADMIN_COOKIE):
+                self.send_header("Set-Cookie", f"{name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; Secure")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if u.path == "/api/set-code":
+            # Foreldre bytter et barns kode. Enheter som var logget inn som barnet må taste ny kode.
+            if not self.is_admin():
+                return self.send_json({"error": "kode"}, 401)
+            kid, code = str(body.get("kid", "")), str(body.get("code", "")).strip()
+            if kid not in {k["id"] for k in KIDS} or not (code.isdigit() and 4 <= len(code) <= 8):
+                return self.send_json({"error": "Koden må være 4–8 tall"}, 400)
+            with LOCK:
+                set_code(kid, code)
             return self.send_json({"ok": True})
 
         if self.guard(u.path):
@@ -369,5 +427,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    seed_codes()
     print(f"Familieoppgaver på port {PORT}, data i {DATA_DIR}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

@@ -6,7 +6,7 @@
 <title>Endre oppgaver</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <style>
   .grupper { display: grid; gap: 16px; }
   .rad { display: grid; grid-template-columns: 52px 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linje); }
@@ -23,6 +23,11 @@
   .lagre { position: sticky; bottom: 12px; display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
   .lagre button, .lagre a { border: 0; border-radius: 999px; padding: 14px 26px; font-weight: 900; background: var(--tekst); color: var(--bg); text-decoration: none; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
   .lagre a { background: var(--kort); color: var(--tekst); border: 1px solid var(--linje); }
+  .koderad { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--linje); }
+  .koderad:last-child { border-bottom: 0; }
+  .koderad b { color: var(--farge); font-size: 1.1rem; }
+  .koderad input { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--linje); background: var(--bg); color: var(--tekst); width: 100%; letter-spacing: .2em; }
+  .koderad button { border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 800; background: var(--farge); color: #fff; }
   .status { text-align: center; font-weight: 800; color: var(--ok); min-height: 1.4em; margin-top: 8px; }
   h1 { text-align: center; font-weight: 900; margin: 6px 0 4px; }
   .under { text-align: center; color: var(--dempet); margin: 0 0 18px; font-weight: 600; }
@@ -32,6 +37,11 @@
 <h1>Endre oppgaver</h1>
 <p class="under">Velg dager for oppgaver som bare gjelder enkelte dager. Ingen dager valgt betyr hver dag.</p>
 <div class="grupper" id="grupper"></div>
+<section class="kort" style="margin-top:16px">
+  <h2 style="font-size:1.3rem">🔑 Barnas koder</h2>
+  <p class="hint" style="margin:6px 0 10px">Bytt kode for et barn. Enhetene barnet er logget inn på må da taste den nye koden.</p>
+  <div id="koder"></div>
+</section>
 <div class="status" id="status"></div>
 <div class="lagre"><a href="/">← Tilbake</a><button id="lagre">Lagre endringer</button></div>
 
@@ -44,6 +54,9 @@ async function last() {
   const r = await fetch('/api/tasks', { cache: 'no-store' });
   ({ kids, tasks } = await r.json());
   tegn();
+  document.getElementById('koder').innerHTML = kids.map(k => `<div class="koderad" style="--farge:${k.color}">
+    <b>${esc(k.name)}</b><input inputmode="numeric" maxlength="8" placeholder="Ny kode" data-kode="${k.id}" aria-label="Ny kode for ${esc(k.name)}">
+    <button data-settkode="${k.id}">Bytt</button></div>`).join('');
 }
 
 function grupper() {
@@ -91,10 +104,21 @@ document.addEventListener('click', e => {
     tegn();
     const inputs = document.querySelectorAll(`[data-legg="${b.dataset.legg}"]`)[0].parentElement.querySelectorAll('input[data-f="title"]');
     inputs[inputs.length - 1]?.focus();
+  } else if (b.dataset.settkode) {
+    settKode(b.dataset.settkode);
   } else if (b.id === 'lagre') {
     lagre();
   }
 });
+
+async function settKode(kid) {
+  const inp = document.querySelector(`[data-kode="${kid}"]`), s = document.getElementById('status');
+  const r = await fetch('/api/set-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kid, code: inp.value }) });
+  const d = await r.json().catch(() => ({}));
+  s.textContent = r.ok ? 'Ny kode lagret ✓' : (d.error || 'Noe gikk galt');
+  if (r.ok) inp.value = '';
+  setTimeout(() => s.textContent = '', 3000);
+}
 
 async function lagre() {
   const s = document.getElementById('status');

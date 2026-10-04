@@ -7,46 +7,84 @@
 <title>Dagens oppgaver</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap">
-<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/style.css?v=3">
 <style>
   body { min-height: 100vh; display: grid; place-items: center; }
-  .logginn { max-width: 340px; width: 100%; text-align: center; padding: 28px 22px; }
+  .logginn { max-width: 360px; width: 100%; text-align: center; padding: 28px 22px; }
   .logginn img { width: 64px; height: 64px; }
   .logginn h1 { font-weight: 900; font-size: 1.5rem; margin: 10px 0 4px; }
   .logginn p { color: var(--dempet); margin: 0 0 18px; font-weight: 600; }
+  .hvem { display: grid; gap: 10px; }
+  .hvem button { border: 0; border-radius: 14px; padding: 15px; font-weight: 900; font-size: 1.2rem; color: #fff; background: var(--farge); }
+  .hvem .foreldre { background: var(--flate); color: var(--tekst); font-size: 1rem; }
   .kode { font: 900 2rem/1 Nunito, sans-serif; letter-spacing: .4em; text-align: center; width: 100%; padding: 14px 0 14px .4em; border-radius: 14px; border: 2px solid var(--linje); background: var(--bg); color: var(--tekst); }
-  .kode:focus { outline: none; border-color: var(--tekst); }
-  .gaa { margin-top: 14px; width: 100%; border: 0; border-radius: 14px; padding: 14px; font-weight: 900; font-size: 1.1rem; background: var(--tekst); color: var(--bg); }
+  .kode:focus { outline: none; border-color: var(--farge, var(--tekst)); }
+  .gaa { margin-top: 14px; width: 100%; border: 0; border-radius: 14px; padding: 14px; font-weight: 900; font-size: 1.1rem; background: var(--farge, var(--tekst)); color: #fff; }
+  .tilbake { margin-top: 10px; background: none; border: 0; color: var(--dempet); font-weight: 800; padding: 8px; }
   .feil { color: #C8453C; font-weight: 800; min-height: 1.4em; margin-top: 10px; }
   .riste { animation: riste .35s; }
   @keyframes riste { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
 </style>
 </head>
 <body>
-<form class="kort logginn" id="skjema">
+<div class="kort logginn" id="boks">
   <img src="/icon.svg" alt="">
-  <h1>Dagens oppgaver</h1>
-  <p id="tekst">Tast koden for å komme inn.</p>
-  <input class="kode" id="kode" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" autofocus aria-label="Kode">
-  <button class="gaa">Gå inn</button>
+  <h1 id="tittel">Dagens oppgaver</h1>
+  <p id="tekst">Hvem er du?</p>
+  <div class="hvem" id="hvem"></div>
+  <form id="skjema" hidden>
+    <input class="kode" id="kode" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="8" aria-label="Kode">
+    <button class="gaa">Gå inn</button>
+    <button type="button" class="tilbake" id="tilbake">← Ikke deg?</button>
+  </form>
   <div class="feil" id="feil"></div>
-</form>
+</div>
 <script>
+const $ = id => document.getElementById(id);
 const ADMIN = location.pathname.startsWith('/admin');
-if (ADMIN) {
-  document.querySelector('h1').textContent = 'Endre oppgaver';
-  document.getElementById('tekst').textContent = 'Bare for mamma og pappa. Tast foreldrekoden.';
+let hvem = null;
+
+function velg(id, navn, farge) {
+  hvem = id;
+  $('boks').style.setProperty('--farge', farge || '');
+  $('tittel').textContent = id === 'foreldre' ? 'Mamma og pappa' : `Hei, ${navn}!`;
+  $('tekst').textContent = id === 'foreldre' ? 'Tast foreldrekoden.' : 'Tast koden din.';
+  $('hvem').hidden = true;
+  $('skjema').hidden = false;
+  $('tilbake').hidden = ADMIN;
+  $('feil').textContent = '';
+  $('kode').value = '';
+  $('kode').focus();
 }
-document.getElementById('skjema').onsubmit = async e => {
+
+async function start() {
+  if (ADMIN) return velg('foreldre');
+  const { kids } = await (await fetch('/api/login-info')).json();
+  $('hvem').innerHTML = kids.map(k => `<button style="--farge:${k.color}" data-id="${k.id}" data-navn="${k.name}">${k.name}</button>`).join('')
+    + '<button class="foreldre" data-id="foreldre">Mamma / pappa</button>';
+}
+
+$('hvem').onclick = e => {
+  const b = e.target.closest('button');
+  if (b) velg(b.dataset.id, b.dataset.navn, b.style.getPropertyValue('--farge'));
+};
+$('tilbake').onclick = () => {
+  hvem = null;
+  $('boks').style.removeProperty('--farge');
+  $('tittel').textContent = 'Dagens oppgaver';
+  $('tekst').textContent = 'Hvem er du?';
+  $('hvem').hidden = false; $('skjema').hidden = true; $('feil').textContent = '';
+};
+$('skjema').onsubmit = async e => {
   e.preventDefault();
-  const kode = document.getElementById('kode'), feil = document.getElementById('feil');
-  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: kode.value, admin: ADMIN }) });
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ who: hvem, code: $('kode').value }) });
   if (r.ok) return location.reload();
   const d = await r.json().catch(() => ({}));
-  feil.textContent = d.error || 'Feil kode';
-  kode.value = '';
-  e.target.classList.remove('riste'); void e.target.offsetWidth; e.target.classList.add('riste');
+  $('feil').textContent = d.error || 'Feil kode';
+  $('kode').value = '';
+  $('boks').classList.remove('riste'); void $('boks').offsetWidth; $('boks').classList.add('riste');
 };
+start();
 </script>
 </body>
 </html>

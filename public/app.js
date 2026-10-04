@@ -30,6 +30,8 @@ function gjelderIdag(t) { return !t.days.length || t.days.includes(ukedag(valgt)
 
 function tegn() {
   const dag = ukedag(valgt);
+  const meg = state.me === 'foreldre' ? 'mamma/pappa' : barn(state.me)?.name;
+  $('meg').textContent = meg ? `Logget inn som ${meg}` : '';
   $('ukedag').textContent = erIdag() ? `I dag – ${DAGER[dag]}` : DAGER[dag][0].toUpperCase() + DAGER[dag].slice(1);
   $('datotekst').textContent = valgt.toLocaleDateString('no-NO', { day: 'numeric', month: 'long', year: 'numeric' });
   $('idag').hidden = erIdag();
@@ -127,6 +129,8 @@ function tegnBunn() {
 async function trykk(id) {
   const t = state.tasks.find(x => x.id === id);
   if (!t) return;
+  const meg = state.kids.some(k => k.id === state.me) ? state.me : null;
+  if (!state.done[id] && t.owner === 'felles' && meg) return lokal(id, meg);
   if (state.done[id] || t.owner !== 'felles') {
     lokal(id, t.owner === 'felles' ? null : t.owner);
     return;
@@ -241,6 +245,11 @@ hentVaer();
 setInterval(hentVaer, 15 * 60000);
 
 function flytt(n) { valgt = startOfDay(new Date(valgt.getTime() + n * 864e5 + 36e5 * 3)); hent(); }
+$('loggut').onclick = async e => {
+  e.preventDefault();
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
+};
 $('forrige').onclick = () => flytt(-1);
 $('neste').onclick = () => flytt(1);
 $('idag').onclick = () => { valgt = startOfDay(new Date()); hent(); };
